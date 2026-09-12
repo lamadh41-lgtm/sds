@@ -74,7 +74,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, doc, getDoc, addDoc, collection, serverTimestamp, updateDoc, increment } from './firebase.js';
+    import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, serverTimestamp, updateDoc, increment } from './firebase.js';
+    import { showToast as appToast, showLoading as appLoading } from './app.js';
 
     // دوال مساعدة محلية عشان منعتمدش على app.js
     function showToast(message, type = 'success') {
@@ -102,7 +103,7 @@
     let projectData = null;
     let currentUser = null;
 
-    onAuthStateChanged(auth, (user) => { currentUser = user; });
+    onAuthStateChanged(auth, (user) => { currentUser = user; if (projectData) renderProduct(); });
 
     async function loadProduct() {
       if (!projectId) {
@@ -125,40 +126,64 @@
       }
     }
 
-    function renderProduct() {
+    let hasPurchased = false;
+
+    async function checkPurchase() {
+      hasPurchased = false;
+      if (!currentUser || !projectId) return;
+      try {
+        const snap = await getDocs(collection(db, 'purchases'));
+        hasPurchased = snap.docs.some(d => {
+          const x = d.data();
+          return x.buyerId === currentUser.uid && x.projectId === projectId && x.status === 'approved';
+        });
+      } catch(e) {}
+    }
+
+    async function renderProduct() {
+      await checkPurchase();
       const p = projectData;
-      const priceHtml = p.isFree || p.price === 0 
-        ? '<span class="badge bg-primary fs-5">مجاني</span>' 
-        : `<span class="badge bg-success fs-5">${p.price} ج.م</span>`;
+      const isFree = p.isFree || p.price === 0;
+      const canDownload = isFree || hasPurchased;
+
+      let priceHtml = '';
+      if (hasPurchased) {
+        priceHtml = '<span class="badge bg-success fs-5"><i class="fas fa-check me-1"></i>تم شراؤه</span>';
+      } else if (isFree) {
+        priceHtml = '<span class="badge bg-primary fs-5">مجاني</span>';
+      } else {
+        priceHtml = `<span class="badge bg-success fs-5">${p.price} ج.م</span>`;
+      }
+
       const verified = p.isOfficial 
         ? `<span class="badge-verified"><i class="fas fa-check-circle"></i> المحرك (رسمي)</span>` 
         : '';
 
       let actionBtn = '';
-      if (p.isFree || p.price === 0) {
+      if (canDownload) {
         actionBtn = `<button class="btn btn-primary-custom text-white btn-lg" id="downloadFreeBtn"><i class="fas fa-download me-2"></i>تحميل المشروع</button>`;
       } else {
         actionBtn = `<button class="btn btn-success btn-lg" id="buyBtn"><i class="fas fa-shopping-cart me-2"></i>شراء المنتج</button>`;
       }
 
-      // محاولة عرض صورة الدرايف بأكثر من طريقة
       let thumbSrc = 'https://via.placeholder.com/500x300?text=No+Image';
       if (p.thumbnailDirect) thumbSrc = p.thumbnailDirect;
       else if (p.thumbnail) {
-        // تحويل الرابط لو كان درايف
         const m = p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/) || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/);
         if (m) thumbSrc = `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
         else thumbSrc = p.thumbnail;
       }
-      const filesSection = p.filesLink 
+
+      // لا نظهر رابط الملفات إلا بعد الشراء أو لو مجاني
+      const filesSection = canDownload && p.filesLink
         ? `<div class="p-3 rounded-3 mb-3" style="background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.3)">
              <i class="fas fa-cloud-download-alt me-2 text-warning"></i>
-             <strong>ملف المشروع على جوجل درايف</strong><br>
+             <strong>ملف المشروع جاهز للتحميل</strong><br>
              <a href="${p.filesLink}" target="_blank" class="btn btn-warning btn-sm mt-2 text-dark fw-bold">
                <i class="fas fa-download me-1"></i> تحميل / فتح المشروع
              </a>
            </div>`
-        : `<div class="text-muted mb-3">لا يوجد رابط مشروع</div>`;
+        : (canDownload ? '<div class="text-muted mb-3">لا يوجد رابط مشروع</div>' : '');
 
       document.getElementById('productContent').innerHTML = `
         <div class="row">
@@ -167,6 +192,7 @@
           </div>
           <div class="col-lg-7">
             <h1 class="fw-bold mb-2">${p.title} ${verified}</h1>
+            <div class="mb-1"><small class="text-muted">ID: ${projectId}</small></div>
             <div class="mb-3">${priceHtml}</div>
             <p class="text-muted">بواسطة: <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none" style="color:#d4af37">${p.sellerName || 'بائع'}</a></p>
             <hr>
@@ -179,7 +205,6 @@
         </div>
       `;
 
-      // Events
       document.getElementById('downloadFreeBtn')?.addEventListener('click', handleFreeDownload);
       document.getElementById('buyBtn')?.addEventListener('click', handleBuyClick);
     }

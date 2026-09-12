@@ -1,14 +1,19 @@
 import { 
   auth, db, storage,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged,
-  updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp,
+  updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp, onSnapshot,
   ref, uploadBytes, getDownloadURL
 } from './firebase.js';
 
 // ===== Helpers =====
 function showToast(message, type = 'success') {
-  const container = document.querySelector('.toast-container');
-  if (!container) return;
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+    container.style.zIndex = '9999';
+    document.body.appendChild(container);
+  }
   const id = 'toast-' + Date.now();
   const bg = type === 'success' ? 'bg-success' : type === 'error' ? 'bg-danger' : 'bg-primary';
   container.insertAdjacentHTML('beforeend', `
@@ -26,13 +31,170 @@ function showToast(message, type = 'success') {
 }
 
 function showLoading(show = true) {
-  const el = document.getElementById('loadingOverlay');
+  let el = document.getElementById('loadingOverlay');
+  if (!el && show) {
+    el = document.createElement('div');
+    el.id = 'loadingOverlay';
+    el.className = 'spinner-overlay';
+    el.innerHTML = '<div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>';
+    document.body.appendChild(el);
+  }
   if (el) el.classList.toggle('d-none', !show);
 }
 
 function getInitials(name) {
   if (!name) return '?';
   return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+}
+
+// ===== Ensure Login/Register Modals exist on every page =====
+function ensureAuthModals() {
+  if (!document.getElementById('loginModal')) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade" id="loginModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fas fa-sign-in-alt me-2"></i>تسجيل الدخول</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <form id="loginForm">
+                <div class="mb-3">
+                  <label class="form-label">البريد الإلكتروني</label>
+                  <input type="email" class="form-control" id="loginEmail" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">كلمة المرور</label>
+                  <input type="password" class="form-control" id="loginPassword" required>
+                </div>
+                <button type="submit" class="btn btn-primary-custom text-white w-100">دخول</button>
+              </form>
+              <p class="text-center mt-3 mb-0">ليس لديك حساب؟ <a href="#" id="switchToRegister">إنشاء حساب</a></p>
+            </div>
+          </div>
+        </div>
+      </div>`);
+  }
+  if (!document.getElementById('registerModal')) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal fade" id="registerModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fas fa-user-plus me-2"></i>إنشاء حساب جديد</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <form id="registerForm">
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">الاسم الكامل *</label>
+                    <input type="text" class="form-control" id="regName" required>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">البريد الإلكتروني *</label>
+                    <input type="email" class="form-control" id="regEmail" required>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">رقم الهاتف *</label>
+                    <input type="tel" class="form-control" id="regPhone" placeholder="01xxxxxxxxx" required>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">كلمة المرور *</label>
+                    <input type="password" class="form-control" id="regPassword" required minlength="6">
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">تأكيد كلمة المرور *</label>
+                  <input type="password" class="form-control" id="regPassword2" required>
+                </div>
+                <div class="form-check mb-2">
+                  <input class="form-check-input" type="checkbox" id="agreePrivacy" required>
+                  <label class="form-check-label" for="agreePrivacy">أوافق على <a href="privacy.html" target="_blank">سياسة الخصوصية</a></label>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="agreeTerms" required>
+                  <label class="form-check-label" for="agreeTerms">أوافق على <a href="terms.html" target="_blank">الشروط والأحكام</a></label>
+                </div>
+                <button type="submit" class="btn btn-primary-custom text-white w-100">إنشاء الحساب</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>`);
+  }
+  // Re-bind forms if newly injected
+  bindAuthForms();
+  document.getElementById('switchToRegister')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    bootstrap.Modal.getInstance(document.getElementById('loginModal'))?.hide();
+    new bootstrap.Modal(document.getElementById('registerModal')).show();
+  });
+}
+
+let authFormsBound = false;
+function bindAuthForms() {
+  if (authFormsBound) return;
+  const loginForm = document.getElementById('loginForm');
+  const regForm = document.getElementById('registerForm');
+  if (!loginForm || !regForm) return;
+  authFormsBound = true;
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value.trim();
+    const pass = document.getElementById('loginPassword').value;
+    showLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      showToast('تم تسجيل الدخول بنجاح');
+      bootstrap.Modal.getInstance(document.getElementById('loginModal'))?.hide();
+    } catch (err) {
+      showToast(err.message.includes('wrong-password') || err.message.includes('user-not-found') || err.message.includes('invalid-credential')
+        ? 'بيانات الدخول غير صحيحة' : 'حدث خطأ', 'error');
+    } finally {
+      showLoading(false);
+    }
+  });
+
+  regForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('regName').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+    const phone = document.getElementById('regPhone')?.value.trim() || '';
+    const pass = document.getElementById('regPassword').value;
+    const pass2 = document.getElementById('regPassword2').value;
+    if (!phone) { showToast('يجب إدخال رقم الهاتف', 'error'); return; }
+    if (pass !== pass2) { showToast('كلمتا المرور غير متطابقتين', 'error'); return; }
+    if (!document.getElementById('agreePrivacy')?.checked || !document.getElementById('agreeTerms')?.checked) {
+      showToast('يجب الموافقة على سياسة الخصوصية والشروط', 'error'); return;
+    }
+    showLoading(true);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(cred.user, { displayName: name });
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        name, email, phone, createdAt: serverTimestamp(),
+        banned: false, deleted: false, role: 'user', bio: ''
+      });
+      showToast('تم إنشاء الحساب بنجاح! مرحباً بك');
+      bootstrap.Modal.getInstance(document.getElementById('registerModal'))?.hide();
+    } catch (err) {
+      showToast(err.message.includes('email-already-in-use') ? 'البريد مستخدم مسبقاً' : 'حدث خطأ أثناء التسجيل', 'error');
+    } finally {
+      showLoading(false);
+    }
+  });
+}
+
+// Call early
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', ensureAuthModals);
+} else {
+  ensureAuthModals();
 }
 
 // ===== Auth State =====
@@ -85,9 +247,6 @@ onAuthStateChanged(auth, async (user) => {
           <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fas fa-sign-out-alt me-2"></i>تسجيل الخروج</a></li>
         </ul>
       </div>
-      <a href="support.html" class="btn btn-outline-secondary btn-sm position-relative" title="الدعم">
-        <i class="fas fa-headset"></i>
-      </a>
     `;
 
     document.getElementById('logoutBtn')?.addEventListener('click', async (e) => {
@@ -103,99 +262,29 @@ onAuthStateChanged(auth, async (user) => {
       modal.show();
     });
 
-    // Load notifications
     loadUserNotifications(user.uid);
+    document.getElementById('notifBtn')?.addEventListener('show.bs.dropdown', () => markNotificationsRead(user.uid));
+    initSupportWidget(user);
   } else {
     currentUserData = null;
+    ensureAuthModals();
     authArea.innerHTML = `
-      <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#loginModal">تسجيل الدخول</button>
-      <button class="btn btn-primary-custom btn-sm text-white" data-bs-toggle="modal" data-bs-target="#registerModal">إنشاء حساب</button>
+      <button class="btn btn-outline-primary btn-sm" id="openLoginBtn">تسجيل الدخول</button>
+      <button class="btn btn-primary-custom btn-sm text-white" id="openRegisterBtn">إنشاء حساب</button>
     `;
-  }
-});
-
-// ===== Register =====
-document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const name = document.getElementById('regName').value.trim();
-  const email = document.getElementById('regEmail').value.trim();
-  const phone = document.getElementById('regPhone')?.value.trim() || '';
-  const pass = document.getElementById('regPassword').value;
-  const pass2 = document.getElementById('regPassword2').value;
-
-  if (!phone) {
-    showToast('يجب إدخال رقم الهاتف', 'error');
-    return;
-  }
-  if (pass !== pass2) {
-    showToast('كلمتا المرور غير متطابقتين', 'error');
-    return;
-  }
-  if (!document.getElementById('agreePrivacy').checked || !document.getElementById('agreeTerms').checked) {
-    showToast('يجب الموافقة على سياسة الخصوصية والشروط والأحكام', 'error');
-    return;
-  }
-
-  showLoading(true);
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, pass);
-    await updateProfile(cred.user, { displayName: name });
-    await setDoc(doc(db, 'users', cred.user.uid), {
-      name,
-      email,
-      phone,
-      createdAt: serverTimestamp(),
-      banned: false,
-      deleted: false,
-      role: 'user',
-      bio: ''
+    document.getElementById('openLoginBtn')?.addEventListener('click', () => {
+      ensureAuthModals();
+      new bootstrap.Modal(document.getElementById('loginModal')).show();
     });
-    showToast('تم إنشاء الحساب بنجاح! مرحباً بك');
-    bootstrap.Modal.getInstance(document.getElementById('registerModal')).hide();
-  } catch (err) {
-    console.error(err);
-    showToast(err.message.includes('email-already-in-use') ? 'البريد مستخدم مسبقاً' : 'حدث خطأ أثناء التسجيل', 'error');
-  } finally {
-    showLoading(false);
+    document.getElementById('openRegisterBtn')?.addEventListener('click', () => {
+      ensureAuthModals();
+      new bootstrap.Modal(document.getElementById('registerModal')).show();
+    });
+    initSupportWidget(null);
   }
 });
 
-// ===== Login =====
-document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass = document.getElementById('loginPassword').value;
-  showLoading(true);
-  try {
-    await signInWithEmailAndPassword(auth, email, pass);
-    showToast('تم تسجيل الدخول بنجاح');
-    bootstrap.Modal.getInstance(document.getElementById('loginModal')).hide();
-  } catch (err) {
-    showToast('بيانات الدخول غير صحيحة', 'error');
-  } finally {
-    showLoading(false);
-  }
-});
-
-// ===== Commission terms toggle =====
-document.getElementById('commissionTermsLink')?.addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('commissionTermsText').classList.toggle('d-none');
-});
-
-// ===== Upload Project =====
-// تحويل رابط جوجل درايف إلى رابط صورة مباشر
-function getDriveImageUrl(link) {
-  if (!link) return '';
-  // استخراج الـ ID من الرابط
-  let id = '';
-  const match1 = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  const match2 = link.match(/id=([a-zA-Z0-9_-]+)/);
-  if (match1) id = match1[1];
-  else if (match2) id = match2[1];
-  if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
-  return link; // لو مش قدر يستخرج، يرجع الرابط الأصلي
-}
+// Auth forms handled by bindAuthForms()
 
 let isPublishing = false;
 document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
@@ -294,24 +383,167 @@ async function loadUserNotifications(uid) {
           <span class="text-muted" style="font-size:0.7rem;">${time}</span>
         </div>
         <div class="small text-muted">${n.body || ''}</div>
+        <div class="text-muted" style="font-size:0.65rem;">ID: ${d.id}</div>
       </div>`;
     }).join('');
-
-    document.getElementById('markAllRead')?.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        const unreadOnes = notifs.filter(d => !d.data().read);
-        await Promise.all(unreadOnes.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
-        loadUserNotifications(uid);
-        showToast('تم تعليم الكل كمقروء');
-      } catch (err) { showToast(err.message, 'error'); }
-    });
   } catch (err) {
     console.error(err);
     listEl.innerHTML = '<div class="text-danger small p-2">تعذر تحميل الإشعارات</div>';
   }
 }
+
+async function markNotificationsRead(uid) {
+  try {
+    const snap = await getDocs(collection(db, 'notifications'));
+    const unread = snap.docs.filter(d => d.data().userId === uid && !d.data().read);
+    await Promise.all(unread.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
+    const badge = document.getElementById('notifBadge');
+    if (badge) badge.classList.add('d-none');
+    // refresh list styles
+    setTimeout(() => loadUserNotifications(uid), 400);
+  } catch (e) { console.error(e); }
+}
+
+// ===== Floating Support Widget =====
+let supportOpen = false;
+let supportUnsub = null;
+
+function initSupportWidget(user) {
+  if (document.getElementById('supportFab')) return;
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="supportFab" class="support-fab">
+      <div id="supportPanel" class="support-panel">
+        <div class="support-panel-header">
+          <span><i class="fas fa-headset me-1"></i> الدعم</span>
+          <button type="button" id="supportCloseBtn" class="btn btn-sm btn-light py-0 px-2">&times;</button>
+        </div>
+        <div id="supportChatBox" class="support-chat-box">
+          <div class="text-center text-muted small py-3">${user ? 'جاري التحميل...' : 'سجّل دخول للتواصل مع الدعم'}</div>
+        </div>
+        <div class="support-input-row" id="supportInputRow" style="${user ? '' : 'display:none'}">
+          <input type="text" id="supportInput" class="form-control form-control-sm" placeholder="اكتب رسالتك...">
+          <button class="btn btn-sm btn-primary" id="supportSendBtn"><i class="fas fa-paper-plane"></i></button>
+        </div>
+      </div>
+      <button type="button" id="supportToggleBtn" class="support-toggle-btn">
+        <i class="fas fa-headset me-1"></i> الدعم
+        <span id="supportBadge" class="support-badge d-none">0</span>
+      </button>
+    </div>
+  `);
+
+  const panel = document.getElementById('supportPanel');
+  const toggleBtn = document.getElementById('supportToggleBtn');
+  const closeBtn = document.getElementById('supportCloseBtn');
+
+  toggleBtn.addEventListener('click', () => {
+    supportOpen = !supportOpen;
+    panel.classList.toggle('open', supportOpen);
+    if (supportOpen && user) {
+      markSupportRead(user.uid);
+      loadSupportMessages(user);
+    }
+  });
+  closeBtn.addEventListener('click', () => {
+    supportOpen = false;
+    panel.classList.remove('open');
+  });
+
+  if (user) {
+    // Live badge for unread admin messages
+    const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid));
+    supportUnsub = onSnapshot(q, (snap) => {
+      const unread = snap.docs.filter(d => d.data().sender === 'admin' && !d.data().read).length;
+      const badge = document.getElementById('supportBadge');
+      if (!badge) return;
+      if (unread > 0 && !supportOpen) {
+        badge.textContent = unread > 9 ? '9+' : unread;
+        badge.classList.remove('d-none');
+      } else {
+        badge.classList.add('d-none');
+      }
+      if (supportOpen) loadSupportMessages(user);
+    });
+
+    document.getElementById('supportSendBtn')?.addEventListener('click', () => sendSupportMsg(user));
+    document.getElementById('supportInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendSupportMsg(user);
+    });
+  }
+}
+
+function loadSupportMessages(user) {
+  const box = document.getElementById('supportChatBox');
+  if (!box || !user) return;
+  getDocs(query(collection(db, 'supportChats'), where('userId', '==', user.uid))).then(snap => {
+    const docs = snap.docs.slice().sort((a, b) => {
+      return (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0);
+    });
+    if (docs.length === 0) {
+      box.innerHTML = '<div class="text-center text-muted small py-3">ابدأ المحادثة بإرسال رسالة</div>';
+      return;
+    }
+    box.innerHTML = docs.map(d => {
+      const m = d.data();
+      const isMe = m.sender === 'user';
+      const time = m.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
+      return `<div class="chat-message ${isMe ? 'me' : ''}">
+        <div class="chat-bubble">${m.text || ''}</div>
+        <small class="text-muted chat-time">${time}</small>
+      </div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  }).catch(e => { box.innerHTML = `<div class="text-danger small">${e.message}</div>`; });
+}
+
+async function sendSupportMsg(user) {
+  const input = document.getElementById('supportInput');
+  const text = input?.value.trim();
+  if (!text || !user) return;
+  input.value = '';
+  try {
+    await addDoc(collection(db, 'supportChats'), {
+      userId: user.uid,
+      userEmail: user.email,
+      sender: 'user',
+      text,
+      read: false,
+      createdAt: serverTimestamp()
+    });
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function markSupportRead(uid) {
+  try {
+    const snap = await getDocs(query(collection(db, 'supportChats'), where('userId', '==', uid)));
+    const unread = snap.docs.filter(d => d.data().sender === 'admin' && !d.data().read);
+    await Promise.all(unread.map(d => updateDoc(doc(db, 'supportChats', d.id), { read: true })));
+    document.getElementById('supportBadge')?.classList.add('d-none');
+  } catch (e) {}
+}
+
+// ===== News Bar =====
+async function loadNewsBar() {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'news'));
+    if (!snap.exists()) return;
+    const data = snap.data();
+    if (!data.active || !data.text) {
+      document.getElementById('newsBar')?.remove();
+      return;
+    }
+    let bar = document.getElementById('newsBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'newsBar';
+      bar.className = 'news-bar';
+      document.body.prepend(bar);
+    }
+    bar.innerHTML = `<div class="news-bar-inner"><i class="fas fa-bullhorn me-2"></i>${data.text}</div>`;
+  } catch (e) { console.error(e); }
+}
+loadNewsBar();
 
 // Export for other pages
 window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData, loadUserNotifications };
