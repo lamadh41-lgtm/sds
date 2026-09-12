@@ -222,7 +222,7 @@ onAuthStateChanged(auth, async (user) => {
     const initials = getInitials(currentUserData.name || user.displayName);
     authArea.innerHTML = `
       <div class="dropdown" id="notifDropdown">
-        <button class="btn btn-outline-secondary btn-sm position-relative" data-bs-toggle="dropdown" id="notifBtn" title="الإشعارات">
+        <button class="btn btn-outline-secondary btn-sm position-relative" data-bs-toggle="dropdown" data-bs-auto-close="outside" id="notifBtn" title="الإشعارات">
           <i class="fas fa-bell"></i>
           <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" id="notifBadge">0</span>
         </button>
@@ -286,6 +286,17 @@ onAuthStateChanged(auth, async (user) => {
 
 // Auth forms handled by bindAuthForms()
 
+function getDriveImageUrl(link) {
+  if (!link) return '';
+  let id = '';
+  const match1 = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const match2 = link.match(/id=([a-zA-Z0-9_-]+)/);
+  if (match1) id = match1[1];
+  else if (match2) id = match2[1];
+  if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
+  return link;
+}
+
 let isPublishing = false;
 document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -298,15 +309,24 @@ document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
   const title = document.getElementById('projTitle').value.trim();
   const desc = document.getElementById('projDesc').value.trim();
   const price = parseFloat(document.getElementById('projPrice').value) || 0;
-  const payMethod = document.getElementById('projPayMethod').value;
-  const payNumber = document.getElementById('projPayNumber').value.trim();
-  const payName = document.getElementById('projPayName').value.trim();
+  let payMethod = document.getElementById('projPayMethod')?.value || '';
+  let payNumber = document.getElementById('projPayNumber')?.value.trim() || '';
+  let payName = document.getElementById('projPayName')?.value.trim() || '';
   const thumbLink = document.getElementById('projThumbLink').value.trim();
   const filesLink = document.getElementById('projFilesLink').value.trim();
 
   if (!thumbLink || !filesLink) {
     showToast('يجب إدخال رابط الصورة ورابط الملفات من جوجل درايف', 'error');
     return;
+  }
+  if (price > 0 && (!payMethod || !payNumber || !payName)) {
+    showToast('أدخل بيانات المحفظة لأن السعر أكبر من صفر', 'error');
+    return;
+  }
+  if (price <= 0) {
+    payMethod = '';
+    payNumber = '';
+    payName = '';
   }
 
   isPublishing = true;
@@ -378,14 +398,36 @@ async function loadUserNotifications(uid) {
       const n = d.data();
       const time = n.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
       return `<div class="notif-item border-bottom py-2 px-1 ${n.read ? '' : 'bg-warning bg-opacity-10'}" data-id="${d.id}">
-        <div class="d-flex justify-content-between">
+        <div class="d-flex justify-content-between align-items-start gap-2">
           <strong class="small">${n.title || 'إشعار'}</strong>
-          <span class="text-muted" style="font-size:0.7rem;">${time}</span>
+          <span class="text-muted text-nowrap" style="font-size:0.7rem;">${time}</span>
         </div>
         <div class="small text-muted">${n.body || ''}</div>
-        <div class="text-muted" style="font-size:0.65rem;">ID: ${d.id}</div>
+        <div class="d-flex align-items-center gap-1 mt-1" style="font-size:0.65rem;">
+          <span class="text-muted">ID: ${d.id}</span>
+          <button type="button" class="btn btn-link btn-sm p-0 copy-id-btn" data-id="${d.id}" title="نسخ ID" style="font-size:0.7rem;line-height:1;">
+            <i class="fas fa-copy"></i>
+          </button>
+        </div>
       </div>`;
     }).join('');
+
+    // منع إغلاق القائمة عند النقر داخل الإشعارات
+    listEl.querySelectorAll('.notif-item, .copy-id-btn').forEach(el => {
+      el.addEventListener('click', (e) => e.stopPropagation());
+    });
+    listEl.querySelectorAll('.copy-id-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(btn.dataset.id);
+          showToast('تم نسخ الـ ID');
+        } catch {
+          showToast('تعذر النسخ', 'error');
+        }
+      });
+    });
   } catch (err) {
     console.error(err);
     listEl.innerHTML = '<div class="text-danger small p-2">تعذر تحميل الإشعارات</div>';
@@ -553,17 +595,32 @@ export { showToast, showLoading, getInitials };
 function togglePaymentFields() {
   const price = parseFloat(document.getElementById('projPrice')?.value) || 0;
   const fields = document.getElementById('paymentFields');
-  if (!fields) return;
-  if (price <= 0) {
-    fields.style.display = 'none';
-    document.getElementById('projPayMethod')?.removeAttribute('required');
-    document.getElementById('projPayNumber')?.removeAttribute('required');
-    document.getElementById('projPayName')?.removeAttribute('required');
-  } else {
-    fields.style.display = 'block';
-    document.getElementById('projPayMethod')?.setAttribute('required', 'required');
-    document.getElementById('projPayNumber')?.setAttribute('required', 'required');
-    document.getElementById('projPayName')?.setAttribute('required', 'required');
+  const method = document.getElementById('projPayMethod');
+  const number = document.getElementById('projPayNumber');
+  const name = document.getElementById('projPayName');
+  const hide = price <= 0;
+
+  if (fields) fields.style.display = hide ? 'none' : 'block';
+
+  // لو مفيش wrapper (صفحة المشاريع) نخفي العناصر نفسها وآباءها
+  [method, number, name].forEach(el => {
+    if (!el) return;
+    if (hide) {
+      el.removeAttribute('required');
+      el.value = el.tagName === 'SELECT' ? (el.options[0]?.value || '') : '';
+    } else {
+      el.setAttribute('required', 'required');
+    }
+    // إخفاء الصف/المجموعة الأب إن وجدت
+    const row = el.closest('.mb-3, .col-md-6, .row');
+    if (row && !fields) row.style.display = hide ? 'none' : '';
+  });
+
+  // labels/groups around payment in projects.html
+  if (!fields) {
+    document.querySelectorAll('[data-pay-field]').forEach(el => {
+      el.style.display = hide ? 'none' : '';
+    });
   }
 }
 document.getElementById('projPrice')?.addEventListener('input', togglePaymentFields);

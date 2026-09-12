@@ -192,7 +192,10 @@
           </div>
           <div class="col-lg-7">
             <h1 class="fw-bold mb-2">${p.title} ${verified}</h1>
-            <div class="mb-1"><small class="text-muted">ID: ${projectId}</small></div>
+            <div class="mb-1 d-flex align-items-center gap-2">
+              <small class="text-muted">ID: ${projectId}</small>
+              <button type="button" class="btn btn-link btn-sm p-0 copy-prod-id" data-id="${projectId}" title="نسخ ID" style="font-size:0.8rem;"><i class="fas fa-copy"></i></button>
+            </div>
             <div class="mb-3">${priceHtml}</div>
             <p class="text-muted">بواسطة: <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none" style="color:#d4af37">${p.sellerName || 'بائع'}</a></p>
             <hr>
@@ -207,6 +210,13 @@
 
       document.getElementById('downloadFreeBtn')?.addEventListener('click', handleFreeDownload);
       document.getElementById('buyBtn')?.addEventListener('click', handleBuyClick);
+      document.querySelector('.copy-prod-id')?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          await navigator.clipboard.writeText(e.currentTarget.dataset.id);
+          showToast('تم نسخ الـ ID');
+        } catch { showToast('تعذر النسخ', 'error'); }
+      });
     }
 
     async function handleFreeDownload() {

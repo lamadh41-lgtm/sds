@@ -66,31 +66,31 @@
               <input type="url" class="form-control" id="projFilesLink" placeholder="رابط مجلد أو ملف ZIP" required>
               <small class="text-muted">ارفع المجلد أو الـ ZIP على درايف وشاركه (أي شخص لديه الرابط)</small>
             </div>
-            <div class="row">
-              <div class="col-md-6 mb-3">
-                <label class="form-label">السعر (0 = مجاني)</label>
-                <input type="number" class="form-control" id="projPrice" min="0" value="0">
-              </div>
-              <div class="col-md-6 mb-3">
-                <label class="form-label">طريقة الاستلام *</label>
-                <select class="form-select" id="projPayMethod" required>
-                  <option value="">اختر...</option>
-                  <option value="vodafone">فودافون كاش</option>
-                  <option value="etisalat">اتصالات كاش</option>
-                  <option value="orange">أورنج كاش</option>
-                  <option value="we">وي كاش</option>
-                  <option value="instapay">إنستاباي</option>
-                </select>
-              </div>
+            <div class="mb-3">
+              <label class="form-label">السعر (0 = مجاني)</label>
+              <input type="number" class="form-control" id="projPrice" min="0" value="0">
             </div>
-            <div class="row">
-              <div class="col-md-6 mb-3">
-                <label class="form-label">رقم المحفظة/إنستاباي *</label>
-                <input type="text" class="form-control" id="projPayNumber" required>
+            <div id="paymentFields" style="display:none;">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">طريقة الاستلام *</label>
+                  <select class="form-select" id="projPayMethod">
+                    <option value="">اختر...</option>
+                    <option value="vodafone">فودافون كاش</option>
+                    <option value="etisalat">اتصالات كاش</option>
+                    <option value="orange">أورنج كاش</option>
+                    <option value="we">وي كاش</option>
+                    <option value="instapay">إنستاباي</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">رقم المحفظة/إنستاباي *</label>
+                  <input type="text" class="form-control" id="projPayNumber">
+                </div>
               </div>
-              <div class="col-md-6 mb-3">
+              <div class="mb-3">
                 <label class="form-label">اسم صاحب الحساب *</label>
-                <input type="text" class="form-control" id="projPayName" required>
+                <input type="text" class="form-control" id="projPayName">
               </div>
             </div>
             <div class="alert alert-info">عمولة 5% من السعر. <a href="#" id="commissionTermsLink">الشروط</a></div>
