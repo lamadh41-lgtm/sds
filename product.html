@@ -98,7 +98,10 @@
         projectData = { id: snap.id, ...snap.data() };
         renderProduct();
       } catch (err) {
-        document.getElementById('productContent').innerHTML = '<div class="alert alert-danger">خطأ في التحميل</div>';
+        console.error(err);
+        document.getElementById('productContent').innerHTML = `<div class="alert alert-danger">
+          خطأ في التحميل<br><small>${err.message || err}</small>
+        </div>`;
       }
     }
 

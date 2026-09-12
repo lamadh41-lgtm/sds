@@ -122,9 +122,18 @@
       grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
       try {
-        const q = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'));
-        const snap = await getDocs(q);
-        allDocs = snap.docs;
+        // استعلام بسيط عشان محتاجش Index
+        const snap = await getDocs(collection(db, 'projects'));
+        allDocs = snap.docs.filter(d => {
+          const data = d.data();
+          return !data.status || data.status === 'active';
+        });
+        // ترتيب يدوي
+        allDocs.sort((a, b) => {
+          const dateA = a.data().createdAt?.toMillis?.() || 0;
+          const dateB = b.data().createdAt?.toMillis?.() || 0;
+          return dateB - dateA;
+        });
 
         const start = (page - 1) * PAGE_SIZE;
         const pageDocs = allDocs.slice(start, start + PAGE_SIZE);
@@ -176,7 +185,11 @@
         });
       } catch (err) {
         console.error(err);
-        grid.innerHTML = '<div class="col-12 text-center text-danger">حدث خطأ في التحميل</div>';
+        grid.innerHTML = `<div class="col-12 text-center text-danger">
+          <p>حدث خطأ في التحميل</p>
+          <small class="text-muted">${err.message || err}</small>
+          <p class="mt-2">تأكد إنك أنشأت Firestore وفعلت القواعد</p>
+        </div>`;
       }
     }
 
