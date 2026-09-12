@@ -59,6 +59,19 @@ onAuthStateChanged(auth, async (user) => {
 
     const initials = getInitials(currentUserData.name || user.displayName);
     authArea.innerHTML = `
+      <div class="dropdown" id="notifDropdown">
+        <button class="btn btn-outline-secondary btn-sm position-relative" data-bs-toggle="dropdown" id="notifBtn" title="الإشعارات">
+          <i class="fas fa-bell"></i>
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" id="notifBadge">0</span>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end notif-menu p-0" style="min-width:320px;max-height:400px;overflow-y:auto;">
+          <div class="p-2 border-bottom d-flex justify-content-between align-items-center bg-light">
+            <strong><i class="fas fa-bell me-1"></i> الإشعارات</strong>
+            <button class="btn btn-sm btn-link text-decoration-none p-0" id="markAllRead">تعليم الكل كمقروء</button>
+          </div>
+          <div id="notifList" class="p-2"><div class="text-center text-muted small py-3">جاري التحميل...</div></div>
+        </div>
+      </div>
       <div class="dropdown">
         <div class="d-flex align-items-center gap-2" data-bs-toggle="dropdown" style="cursor:pointer;">
           <div class="user-avatar">${initials}</div>
@@ -89,6 +102,9 @@ onAuthStateChanged(auth, async (user) => {
       const modal = new bootstrap.Modal(document.getElementById('uploadModal'));
       modal.show();
     });
+
+    // Load notifications
+    loadUserNotifications(user.uid);
   } else {
     currentUserData = null;
     authArea.innerHTML = `
@@ -181,8 +197,10 @@ function getDriveImageUrl(link) {
   return link; // لو مش قدر يستخرج، يرجع الرابط الأصلي
 }
 
+let isPublishing = false;
 document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (isPublishing) return;
   if (!currentUser) {
     showToast('يجب تسجيل الدخول أولاً', 'error');
     return;
@@ -202,6 +220,7 @@ document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
     return;
   }
 
+  isPublishing = true;
   showLoading(true);
   try {
     // حفظ المشروع بروابط الدرايف فقط (من غير Storage)
@@ -210,10 +229,10 @@ document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
       description: desc,
       price,
       isFree: price === 0,
-      thumbnail: thumbLink,                 // الرابط الأصلي
-      thumbnailDirect: getDriveImageUrl(thumbLink), // رابط مباشر للعرض
-      filesLink: filesLink,                 // رابط المجلد أو الملف
-      files: [],                            // فاضي عشان التوافق
+      thumbnail: thumbLink,
+      thumbnailDirect: getDriveImageUrl(thumbLink),
+      filesLink: filesLink,
+      files: [],
       sellerId: currentUser.uid,
       sellerName: currentUserData?.name || currentUser.displayName,
       paymentMethod: payMethod,
@@ -234,12 +253,68 @@ document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
     console.error(err);
     showToast('حدث خطأ أثناء نشر المشروع: ' + err.message, 'error');
   } finally {
+    isPublishing = false;
     showLoading(false);
   }
 });
 
+// ===== Notifications =====
+async function loadUserNotifications(uid) {
+  const listEl = document.getElementById('notifList');
+  const badge = document.getElementById('notifBadge');
+  if (!listEl) return;
+  try {
+    const snap = await getDocs(collection(db, 'notifications'));
+    const notifs = snap.docs
+      .filter(d => d.data().userId === uid)
+      .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
+      .slice(0, 30);
+
+    const unread = notifs.filter(d => !d.data().read).length;
+    if (badge) {
+      if (unread > 0) {
+        badge.textContent = unread > 9 ? '9+' : unread;
+        badge.classList.remove('d-none');
+      } else {
+        badge.classList.add('d-none');
+      }
+    }
+
+    if (notifs.length === 0) {
+      listEl.innerHTML = '<div class="text-center text-muted small py-3">لا توجد إشعارات</div>';
+      return;
+    }
+
+    listEl.innerHTML = notifs.map(d => {
+      const n = d.data();
+      const time = n.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
+      return `<div class="notif-item border-bottom py-2 px-1 ${n.read ? '' : 'bg-warning bg-opacity-10'}" data-id="${d.id}">
+        <div class="d-flex justify-content-between">
+          <strong class="small">${n.title || 'إشعار'}</strong>
+          <span class="text-muted" style="font-size:0.7rem;">${time}</span>
+        </div>
+        <div class="small text-muted">${n.body || ''}</div>
+      </div>`;
+    }).join('');
+
+    document.getElementById('markAllRead')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const unreadOnes = notifs.filter(d => !d.data().read);
+        await Promise.all(unreadOnes.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
+        loadUserNotifications(uid);
+        showToast('تم تعليم الكل كمقروء');
+      } catch (err) { showToast(err.message, 'error'); }
+    });
+  } catch (err) {
+    console.error(err);
+    listEl.innerHTML = '<div class="text-danger small p-2">تعذر تحميل الإشعارات</div>';
+  }
+}
+
 // Export for other pages
-window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData };
+window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData, loadUserNotifications };
 export { showToast, showLoading, getInitials };
 
 // إخفاء حقول الدفع لو السعر = 0

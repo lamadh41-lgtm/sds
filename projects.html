@@ -153,19 +153,23 @@
             : '';
           return `
             <div class="col-md-4 col-sm-6">
-              <a href="product.html?id=${d.id}" class="text-decoration-none">
-                <div class="project-card">
+              <div class="project-card h-100">
+                <a href="product.html?id=${d.id}" class="text-decoration-none">
                   <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
-                  <div class="project-body">
+                </a>
+                <div class="project-body">
+                  <a href="product.html?id=${d.id}" class="text-decoration-none text-dark">
                     <div class="project-title">${p.title} ${verified}</div>
                     <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
-                    <div class="d-flex justify-content-between align-items-center">
-                      ${priceHtml}
-                      <small class="text-muted">${p.sellerName || 'بائع'}</small>
-                    </div>
+                  </a>
+                  <div class="d-flex justify-content-between align-items-center">
+                    ${priceHtml}
+                    <a href="seller.html?id=${p.sellerId || ''}" class="small text-primary text-decoration-none fw-semibold" onclick="event.stopPropagation();">
+                      <i class="fas fa-store me-1"></i>${p.sellerName || 'بائع'}
+                    </a>
                   </div>
                 </div>
-              </a>
+              </div>
             </div>
           `;
         }).join('');
@@ -200,65 +204,15 @@
       }
     });
 
-    // Reuse upload logic from app.js by re-attaching
+    // منع التكرار: منطق الرفع موجود في app.js فقط (تم إزالة النسخة المكررة)
     document.getElementById('commissionTermsLink')?.addEventListener('click', e => {
       e.preventDefault();
       document.getElementById('commissionTermsText').classList.toggle('d-none');
     });
 
-    function getDriveImageUrl(link) {
-      if (!link) return '';
-      let id = '';
-      const match1 = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      const match2 = link.match(/id=([a-zA-Z0-9_-]+)/);
-      if (match1) id = match1[1];
-      else if (match2) id = match2[1];
-      if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
-      return link;
-    }
-
-    document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const user = auth.currentUser;
-      if (!user) { showToast('سجل دخول أولاً', 'error'); return; }
-
-      const title = document.getElementById('projTitle').value.trim();
-      const desc = document.getElementById('projDesc').value.trim();
-      const price = parseFloat(document.getElementById('projPrice').value) || 0;
-      const payMethod = document.getElementById('projPayMethod').value;
-      const payNumber = document.getElementById('projPayNumber').value.trim();
-      const payName = document.getElementById('projPayName').value.trim();
-      const thumbLink = document.getElementById('projThumbLink').value.trim();
-      const filesLink = document.getElementById('projFilesLink').value.trim();
-
-      if (!thumbLink || !filesLink) {
-        showToast('أدخل روابط الدرايف', 'error');
-        return;
-      }
-
-      showLoading(true);
-      try {
-        const userSnap = await getDoc(doc(db, 'users', user.uid));
-        const userData = userSnap.data() || {};
-
-        await addDoc(collection(db, 'projects'), {
-          title, description: desc, price, isFree: price === 0,
-          thumbnail: thumbLink,
-          thumbnailDirect: getDriveImageUrl(thumbLink),
-          filesLink: filesLink,
-          files: [],
-          sellerId: user.uid, sellerName: userData.name || user.displayName,
-          paymentMethod: payMethod, paymentNumber: payNumber, paymentName: payName,
-          commission: 5, status: 'active', isOfficial: false, createdAt: serverTimestamp(), downloads: 0, sales: 0
-        });
-        showToast('تم النشر بنجاح');
-        bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
-        loadProjects(1);
-      } catch (err) {
-        showToast('خطأ: ' + err.message, 'error');
-      } finally {
-        showLoading(false);
-      }
+    // بعد النشر الناجح من app.js نعيد تحميل القائمة
+    document.getElementById('uploadForm')?.addEventListener('submit', () => {
+      setTimeout(() => loadProjects(1), 1500);
     });
 
     loadProjects(1);

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>صفحة التاجر | متجر مصران</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+      <a class="navbar-brand" href="index.html"><i class="fas fa-code me-2"></i>متجر مصران</a>
+      <div class="d-flex align-items-center gap-3" id="authArea">
+        <a href="projects.html" class="btn btn-outline-primary btn-sm">كل المشاريع</a>
+        <a href="index.html" class="btn btn-outline-secondary btn-sm">الرئيسية</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-5">
+    <div id="sellerHeader" class="mb-4">
+      <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+    </div>
+
+    <h4 class="mb-3"><i class="fas fa-box-open me-2"></i>منتجات التاجر</h4>
+    <div class="row g-4" id="sellerProducts">
+      <div class="col-12 text-center py-4"><div class="spinner-border text-primary"></div></div>
+    </div>
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+  <div class="spinner-overlay d-none" id="loadingOverlay">
+    <div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { auth, db, onAuthStateChanged, collection, getDocs, doc, getDoc } from './firebase.js';
+    import { showToast, showLoading, getInitials } from './app.js';
+
+    const params = new URLSearchParams(location.search);
+    const sellerId = params.get('id');
+
+    if (!sellerId) {
+      document.getElementById('sellerHeader').innerHTML = '<div class="alert alert-warning">لم يتم تحديد التاجر</div>';
+      document.getElementById('sellerProducts').innerHTML = '';
+    } else {
+      loadSeller();
+    }
+
+    async function loadSeller() {
+      try {
+        let sellerName = 'تاجر';
+        let sellerBio = '';
+        if (sellerId === 'official') {
+          sellerName = 'المحرك';
+          sellerBio = 'الحساب الرسمي لمتجر مصران';
+        } else {
+          const uSnap = await getDoc(doc(db, 'users', sellerId));
+          if (uSnap.exists()) {
+            const u = uSnap.data();
+            sellerName = u.name || 'تاجر';
+            sellerBio = u.bio || '';
+          }
+        }
+
+        const initials = (sellerName || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        document.getElementById('sellerHeader').innerHTML = `
+          <div class="card shadow-sm border-0">
+            <div class="card-body d-flex align-items-center gap-3 flex-wrap">
+              <div class="user-avatar" style="width:64px;height:64px;font-size:1.4rem;">${initials}</div>
+              <div>
+                <h3 class="mb-1">${sellerName}</h3>
+                ${sellerBio ? `<p class="text-muted mb-0 small">${sellerBio}</p>` : ''}
+                <p class="text-muted mb-0 small"><i class="fas fa-store me-1"></i>صفحة التاجر</p>
+              </div>
+            </div>
+          </div>`;
+
+        const snap = await getDocs(collection(db, 'projects'));
+        const prods = snap.docs.filter(d => {
+          const p = d.data();
+          return p.sellerId === sellerId && (!p.status || p.status === 'active');
+        }).sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0));
+
+        const grid = document.getElementById('sellerProducts');
+        if (prods.length === 0) {
+          grid.innerHTML = '<div class="col-12"><div class="alert alert-info">لا توجد منتجات منشورة لهذا التاجر حالياً</div></div>';
+          return;
+        }
+
+        grid.innerHTML = prods.map(d => {
+          const p = d.data();
+          const priceHtml = p.isFree || p.price === 0
+            ? '<span class="project-price free">مجاني</span>'
+            : `<span class="project-price">${p.price} ج.م</span>`;
+          const verified = p.isOfficial
+            ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>'
+            : '';
+          return `
+            <div class="col-md-4 col-sm-6">
+              <a href="product.html?id=${d.id}" class="text-decoration-none">
+                <div class="project-card h-100">
+                  <img src="${p.thumbnailDirect || p.thumbnail || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                  <div class="project-body">
+                    <div class="project-title">${p.title} ${verified}</div>
+                    <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                      ${priceHtml}
+                      <small class="text-muted">${p.sales || 0} مبيعات</small>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            </div>`;
+        }).join('');
+      } catch (err) {
+        console.error(err);
+        document.getElementById('sellerHeader').innerHTML = `<div class="alert alert-danger">خطأ: ${err.message}</div>`;
+        document.getElementById('sellerProducts').innerHTML = '';
+      }
+    }
+
+    // Auth area (basic)
+    onAuthStateChanged(auth, async (user) => {
+      const area = document.getElementById('authArea');
+      if (!area) return;
+      if (user) {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        const name = snap.exists() ? (snap.data().name || user.displayName) : user.displayName;
+        area.innerHTML = `
+          <a href="projects.html" class="btn btn-outline-primary btn-sm">كل المشاريع</a>
+          <a href="account.html" class="btn btn-outline-secondary btn-sm">${name || 'حسابي'}</a>
+          <a href="index.html" class="btn btn-outline-secondary btn-sm">الرئيسية</a>`;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -566,3 +566,106 @@ body {
   font-weight: 800;
   color: #667eea;
 }
+
+/* ===== Notifications Dropdown ===== */
+.notif-menu {
+  border: none !important;
+  border-radius: 14px !important;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.15) !important;
+}
+.notif-item {
+  border-radius: 8px;
+  transition: background 0.15s;
+  cursor: default;
+}
+.notif-item:hover {
+  background: rgba(212,175,55,0.08) !important;
+}
+#notifBtn {
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#notifBadge {
+  font-size: 0.65rem;
+  min-width: 18px;
+}
+
+/* ===== Project Cards Polish ===== */
+.project-card {
+  background: #fff;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(26,18,11,0.08);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  border: 1px solid rgba(212,175,55,0.15);
+}
+.project-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(212,175,55,0.22);
+}
+.project-thumb {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  background: #f5f0e0;
+}
+.project-body {
+  padding: 1rem 1.15rem 1.2rem;
+}
+.project-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+  color: #1a120b;
+  line-height: 1.35;
+}
+.project-price {
+  font-weight: 800;
+  color: #b8860b;
+  font-size: 1.05rem;
+}
+.project-price.free {
+  color: #2e7d32;
+  background: rgba(46,125,50,0.1);
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+.badge-verified {
+  background: linear-gradient(135deg, #d4af37, #b8860b);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 20px;
+  font-weight: 600;
+}
+
+/* ===== Seller page ===== */
+.user-avatar {
+  background: var(--gradient);
+  color: #fff;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(212,175,55,0.35);
+}
+
+/* ===== Buttons polish ===== */
+.btn-primary-custom {
+  background: linear-gradient(135deg, #d4af37, #b8860b) !important;
+  border: none !important;
+  font-weight: 700;
+  border-radius: 12px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.btn-primary-custom:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(212,175,55,0.4);
+}
