@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>المشاريع | متجر مصران</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+      <a class="navbar-brand" href="index.html"><i class="fas fa-code me-2"></i>متجر مصران</a>
+      <div class="d-flex align-items-center gap-3" id="authArea">
+        <a href="index.html" class="btn btn-outline-primary btn-sm">الرئيسية</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="section-title mb-0" style="text-align:right;">جميع المشاريع</h2>
+      <button class="btn btn-primary-custom text-white" id="uploadFromProjects" style="display:none;">
+        <i class="fas fa-plus me-1"></i>شارك إبداعاتك
+      </button>
+    </div>
+
+    <div class="row g-4" id="projectsGrid">
+      <div class="col-12 text-center py-5">
+        <div class="spinner-border text-primary"></div>
+        <p class="mt-2">جاري تحميل المشاريع...</p>
+      </div>
+    </div>
+
+    <nav class="mt-5">
+      <ul class="pagination justify-content-center" id="pagination"></ul>
+    </nav>
+  </div>
+
+  <!-- Upload Modal (same as index) -->
+  <div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fas fa-cloud-upload-alt me-2"></i>شارك إبداعاتك</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="uploadForm">
+            <div class="mb-3">
+              <label class="form-label">اسم المشروع *</label>
+              <input type="text" class="form-control" id="projTitle" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">الوصف *</label>
+              <textarea class="form-control" id="projDesc" rows="4" required></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">رابط صورة مصغرة من جوجل درايف *</label>
+              <input type="url" class="form-control" id="projThumbLink" placeholder="https://drive.google.com/file/d/XXXX/view" required>
+              <small class="text-muted">ارفع الصورة على درايف → شارك → انسخ الرابط</small>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">رابط ملفات المشروع من جوجل درايف *</label>
+              <input type="url" class="form-control" id="projFilesLink" placeholder="رابط مجلد أو ملف ZIP" required>
+              <small class="text-muted">ارفع المجلد أو الـ ZIP على درايف وشاركه (أي شخص لديه الرابط)</small>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">السعر (0 = مجاني)</label>
+                <input type="number" class="form-control" id="projPrice" min="0" value="0">
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">طريقة الاستلام *</label>
+                <select class="form-select" id="projPayMethod" required>
+                  <option value="">اختر...</option>
+                  <option value="vodafone">فودافون كاش</option>
+                  <option value="etisalat">اتصالات كاش</option>
+                  <option value="orange">أورنج كاش</option>
+                  <option value="we">وي كاش</option>
+                  <option value="instapay">إنستاباي</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label class="form-label">رقم المحفظة/إنستاباي *</label>
+                <input type="text" class="form-control" id="projPayNumber" required>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label class="form-label">اسم صاحب الحساب *</label>
+                <input type="text" class="form-control" id="projPayName" required>
+              </div>
+            </div>
+            <div class="alert alert-info">عمولة 5% من السعر. <a href="#" id="commissionTermsLink">الشروط</a></div>
+            <div id="commissionTermsText" class="alert alert-secondary d-none">الشروط سيتم إضافتها لاحقاً.</div>
+            <button type="submit" class="btn btn-primary-custom text-white w-100">نشر المشروع</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+  <div class="spinner-overlay d-none" id="loadingOverlay">
+    <div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { auth, db, storage, onAuthStateChanged, collection, query, where, orderBy, getDocs, limit, startAfter, addDoc, serverTimestamp, ref, uploadBytes, getDownloadURL, doc, getDoc } from './firebase.js';
+    import { showToast, showLoading, getInitials } from './app.js';
+
+    const PAGE_SIZE = 10;
+    let lastDoc = null;
+    let currentPage = 1;
+    let allDocs = [];
+
+    async function loadProjects(page = 1) {
+      const grid = document.getElementById('projectsGrid');
+      grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
+
+      try {
+        const q = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'));
+        const snap = await getDocs(q);
+        allDocs = snap.docs;
+
+        const start = (page - 1) * PAGE_SIZE;
+        const pageDocs = allDocs.slice(start, start + PAGE_SIZE);
+
+        if (pageDocs.length === 0) {
+          grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد مشاريع بعد. كن أول من يشارك!</p></div>';
+          return;
+        }
+
+        grid.innerHTML = pageDocs.map(d => {
+          const p = d.data();
+          const priceHtml = p.isFree || p.price === 0 
+            ? '<span class="project-price free">مجاني</span>' 
+            : `<span class="project-price">${p.price} ج.م</span>`;
+          const verified = p.isOfficial 
+            ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>' 
+            : '';
+          return `
+            <div class="col-md-4 col-sm-6">
+              <a href="product.html?id=${d.id}" class="text-decoration-none">
+                <div class="project-card">
+                  <img src="${p.thumbnailDirect || p.thumbnail || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                  <div class="project-body">
+                    <div class="project-title">${p.title} ${verified}</div>
+                    <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                      ${priceHtml}
+                      <small class="text-muted">${p.sellerName || 'بائع'}</small>
+                    </div>
+                  </div>
+                </div>
+              </a>
+            </div>
+          `;
+        }).join('');
+
+        // Pagination
+        const totalPages = Math.ceil(allDocs.length / PAGE_SIZE);
+        const pag = document.getElementById('pagination');
+        pag.innerHTML = '';
+        for (let i = 1; i <= totalPages; i++) {
+          pag.innerHTML += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+        }
+        pag.querySelectorAll('.page-link').forEach(el => {
+          el.addEventListener('click', (e) => {
+            e.preventDefault();
+            loadProjects(parseInt(el.dataset.page));
+          });
+        });
+      } catch (err) {
+        console.error(err);
+        grid.innerHTML = '<div class="col-12 text-center text-danger">حدث خطأ في التحميل</div>';
+      }
+    }
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        document.getElementById('uploadFromProjects').style.display = 'inline-block';
+        document.getElementById('uploadFromProjects').onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
+      }
+    });
+
+    // Reuse upload logic from app.js by re-attaching
+    document.getElementById('commissionTermsLink')?.addEventListener('click', e => {
+      e.preventDefault();
+      document.getElementById('commissionTermsText').classList.toggle('d-none');
+    });
+
+    function getDriveImageUrl(link) {
+      if (!link) return '';
+      let id = '';
+      const match1 = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      const match2 = link.match(/id=([a-zA-Z0-9_-]+)/);
+      if (match1) id = match1[1];
+      else if (match2) id = match2[1];
+      if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
+      return link;
+    }
+
+    document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const user = auth.currentUser;
+      if (!user) { showToast('سجل دخول أولاً', 'error'); return; }
+
+      const title = document.getElementById('projTitle').value.trim();
+      const desc = document.getElementById('projDesc').value.trim();
+      const price = parseFloat(document.getElementById('projPrice').value) || 0;
+      const payMethod = document.getElementById('projPayMethod').value;
+      const payNumber = document.getElementById('projPayNumber').value.trim();
+      const payName = document.getElementById('projPayName').value.trim();
+      const thumbLink = document.getElementById('projThumbLink').value.trim();
+      const filesLink = document.getElementById('projFilesLink').value.trim();
+
+      if (!thumbLink || !filesLink) {
+        showToast('أدخل روابط الدرايف', 'error');
+        return;
+      }
+
+      showLoading(true);
+      try {
+        const userSnap = await getDoc(doc(db, 'users', user.uid));
+        const userData = userSnap.data() || {};
+
+        await addDoc(collection(db, 'projects'), {
+          title, description: desc, price, isFree: price === 0,
+          thumbnail: thumbLink,
+          thumbnailDirect: getDriveImageUrl(thumbLink),
+          filesLink: filesLink,
+          files: [],
+          sellerId: user.uid, sellerName: userData.name || user.displayName,
+          paymentMethod: payMethod, paymentNumber: payNumber, paymentName: payName,
+          commission: 5, status: 'active', isOfficial: false, createdAt: serverTimestamp(), downloads: 0, sales: 0
+        });
+        showToast('تم النشر بنجاح');
+        bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
+        loadProjects(1);
+      } catch (err) {
+        showToast('خطأ: ' + err.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    });
+
+    loadProjects(1);
+  </script>
+</body>
+</html>
