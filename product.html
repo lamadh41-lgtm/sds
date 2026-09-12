@@ -212,6 +212,31 @@
             <div id="actionArea" class="mt-3">${actionBtn}</div>
           </div>
         </div>
+        <hr class="my-4">
+        <div id="commentsSection">
+          <h4 class="mb-3"><i class="fas fa-comments me-2"></i>التعليقات والتقييمات</h4>
+          <div id="commentsList" class="mb-3" style="max-height:400px;overflow-y:auto;"></div>
+          <div id="commentFormArea" class="d-none">
+            <div class="card">
+              <div class="card-body">
+                <h6 id="commentFormTitle">أضف تقييمك وتعليقك (اختياري)</h6>
+                <div class="mb-2">
+                  <label class="form-label">عدد النجوم</label>
+                  <select class="form-select form-select-sm w-auto" id="commentStars">
+                    <option value="5">5 ⭐</option>
+                    <option value="4">4 ⭐</option>
+                    <option value="3">3 ⭐</option>
+                    <option value="2">2 ⭐</option>
+                    <option value="1">1 ⭐</option>
+                  </select>
+                </div>
+                <textarea class="form-control mb-2" id="commentText" rows="3" placeholder="اكتب تعليقك هنا (اختياري)..."></textarea>
+                <button class="btn btn-primary btn-sm" id="submitCommentBtn">إرسال</button>
+                <button class="btn btn-outline-secondary btn-sm d-none" id="updateCommentBtn">تحديث التعليق</button>
+              </div>
+            </div>
+          </div>
+        </div>
       `;
 
       document.getElementById('downloadFreeBtn')?.addEventListener('click', handleFreeDownload);
@@ -223,6 +248,96 @@
           await navigator.clipboard.writeText(e.currentTarget.dataset.id);
           showToast('تم نسخ الـ ID');
         } catch { showToast('تعذر النسخ', 'error'); }
+      });
+      loadComments();
+      setupCommentForm();
+    }
+
+    let myCommentId = null;
+
+    async function loadComments() {
+      const list = document.getElementById('commentsList');
+      if (!list) return;
+      try {
+        const snap = await getDocs(collection(db, 'comments'));
+        const comments = snap.docs
+          .filter(d => d.data().projectId === projectId)
+          .sort((a,b) => (b.data().createdAt?.toMillis?.()||0) - (a.data().createdAt?.toMillis?.()||0));
+        if (comments.length === 0) {
+          list.innerHTML = '<div class="text-muted">لا توجد تعليقات بعد</div>';
+        } else {
+          list.innerHTML = comments.map(d => {
+            const c = d.data();
+            const stars = '★'.repeat(c.stars || 0) + '☆'.repeat(5 - (c.stars || 0));
+            const isMine = currentUser && c.userId === currentUser.uid;
+            if (isMine) myCommentId = d.id;
+            return `<div class="border-bottom py-2">
+              <div class="d-flex justify-content-between">
+                <strong>${c.userName || 'مستخدم'}</strong>
+                <span class="text-warning">${stars}</span>
+              </div>
+              <p class="mb-1 small">${c.text || ''}</p>
+              ${isMine ? `<button class="btn btn-link btn-sm p-0 edit-my-comment" data-id="${d.id}" data-stars="${c.stars||5}" data-text="${(c.text||'').replace(/"/g,'&quot;')}">تعديل التعليق</button>` : ''}
+            </div>`;
+          }).join('');
+          list.querySelectorAll('.edit-my-comment').forEach(btn => {
+            btn.addEventListener('click', () => {
+              document.getElementById('commentStars').value = btn.dataset.stars;
+              document.getElementById('commentText').value = btn.dataset.text;
+              document.getElementById('submitCommentBtn').classList.add('d-none');
+              document.getElementById('updateCommentBtn').classList.remove('d-none');
+              document.getElementById('commentFormTitle').textContent = 'تعديل تعليقك';
+              myCommentId = btn.dataset.id;
+            });
+          });
+        }
+      } catch(e) { list.innerHTML = ''; }
+    }
+
+    function setupCommentForm() {
+      const area = document.getElementById('commentFormArea');
+      if (!area) return;
+      if (hasPurchased || (projectData && projectData.isFree === false && hasPurchased) || hasPurchased) {
+        area.classList.remove('d-none');
+      }
+      // show form if purchased (free or paid approved)
+      if (hasPurchased) area.classList.remove('d-none');
+      else area.classList.add('d-none');
+
+      document.getElementById('submitCommentBtn')?.addEventListener('click', async () => {
+        if (!currentUser || myCommentId) return;
+        const stars = parseInt(document.getElementById('commentStars').value) || 5;
+        const text = document.getElementById('commentText').value.trim();
+        showLoading(true);
+        try {
+          await addDoc(collection(db, 'comments'), {
+            projectId,
+            userId: currentUser.uid,
+            userName: currentUser.displayName || currentUser.email?.split('@')[0] || 'مستخدم',
+            stars,
+            text,
+            createdAt: serverTimestamp()
+          });
+          showToast('تم إضافة التعليق');
+          document.getElementById('commentText').value = '';
+          loadComments();
+          document.getElementById('submitCommentBtn').classList.add('d-none');
+          document.getElementById('updateCommentBtn').classList.remove('d-none');
+        } catch(e) { showToast('خطأ: ' + e.message, 'error'); }
+        finally { showLoading(false); }
+      });
+
+      document.getElementById('updateCommentBtn')?.addEventListener('click', async () => {
+        if (!myCommentId) return;
+        const stars = parseInt(document.getElementById('commentStars').value) || 5;
+        const text = document.getElementById('commentText').value.trim();
+        showLoading(true);
+        try {
+          await updateDoc(doc(db, 'comments', myCommentId), { stars, text, updatedAt: serverTimestamp() });
+          showToast('تم تحديث التعليق');
+          loadComments();
+        } catch(e) { showToast('خطأ: ' + e.message, 'error'); }
+        finally { showLoading(false); }
       });
     }
 

@@ -243,7 +243,7 @@ onAuthStateChanged(auth, async (user) => {
           <li><a class="dropdown-item" href="account.html"><i class="fas fa-user me-2"></i>حسابي</a></li>
           <li><a class="dropdown-item" href="purchases.html"><i class="fas fa-shopping-bag me-2"></i>مشترياتي</a></li>
           <li><a class="dropdown-item" href="my-creations.html"><i class="fas fa-lightbulb me-2"></i>إبداعاتي</a></li>
-          <li><a class="dropdown-item" href="#" id="openUploadBtn"><i class="fas fa-cloud-upload-alt me-2"></i>شارك إبداعاتك</a></li>
+          <li><a class="dropdown-item" href="earnings.html"><i class="fas fa-wallet me-2"></i>أرباحك</a></li>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fas fa-sign-out-alt me-2"></i>تسجيل الخروج</a></li>
         </ul>

@@ -33,6 +33,9 @@
         <div>
           <h3 class="mb-1" id="profileName">جاري التحميل...</h3>
           <p class="text-muted mb-0" id="profileEmail"></p>
+          <p class="text-muted small mb-0 mt-1">ID: <span id="profileId" class="fw-semibold text-dark"></span>
+            <button type="button" class="btn btn-link btn-sm p-0 ms-1" id="copyIdBtn" title="نسخ ID"><i class="fas fa-copy"></i></button>
+          </p>
         </div>
       </div>
 
@@ -117,15 +120,24 @@
       document.getElementById('profileAvatar').textContent = getInitials(data.name || user.displayName);
       document.getElementById('profileName').textContent = data.name || user.displayName || 'مستخدم';
       document.getElementById('profileEmail').textContent = user.email;
+      document.getElementById('profileId').textContent = user.uid;
       document.getElementById('accName').value = data.name || '';
       document.getElementById('accEmail').value = user.email;
       document.getElementById('accPhone').value = data.phone || '';
       document.getElementById('accBio').value = data.bio || '';
 
+      document.getElementById('copyIdBtn')?.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(user.uid);
+          showToast('تم نسخ الـ ID');
+        } catch (e) { showToast('تعذر النسخ', 'error'); }
+      });
+
       // Fill auth area simply
       document.getElementById('authArea').innerHTML = `
         <a href="index.html" class="btn btn-outline-primary btn-sm">الرئيسية</a>
         <a href="purchases.html" class="btn btn-outline-secondary btn-sm">مشترياتي</a>
+        <a href="earnings.html" class="btn btn-outline-success btn-sm">أرباحك</a>
       `;
     });
 
