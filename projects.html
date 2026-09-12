@@ -155,7 +155,7 @@
             <div class="col-md-4 col-sm-6">
               <a href="product.html?id=${d.id}" class="text-decoration-none">
                 <div class="project-card">
-                  <img src="${p.thumbnailDirect || p.thumbnail || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                  <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
                   <div class="project-body">
                     <div class="project-title">${p.title} ${verified}</div>
                     <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
