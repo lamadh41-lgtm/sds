@@ -9,12 +9,19 @@
   <link href="styles.css" rel="stylesheet">
 </head>
 <body>
-  <nav class="navbar navbar-expand-lg navbar-custom">
+    <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
     <div class="container">
       <a class="navbar-brand" href="index.html"><i class="fas fa-code me-2"></i>متجر مصران</a>
-      <div class="d-flex gap-2">
-        <a href="account.html" class="btn btn-outline-primary btn-sm">حسابي</a>
-        <a href="index.html" class="btn btn-outline-secondary btn-sm">الرئيسية</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navMenu">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="projects.html">المشاريع</a></li>
+          <li class="nav-item"><a class="nav-link" href="index.html#about">عن المتجر</a></li>
+          <li class="nav-item"><a class="nav-link" href="support.html">الدعم والتواصل</a></li>
+        </ul>
+        <div class="d-flex align-items-center gap-3" id="authArea"></div>
       </div>
     </div>
   </nav>
@@ -52,95 +59,98 @@
     import { auth, db, onAuthStateChanged, collection, query, where, getDocs, orderBy, doc, getDoc } from './firebase.js';
     import { showToast } from './app.js';
 
+    function thumbUrl(snap, live) {
+      const s = snap || {};
+      if (s.thumbnailDirect) return s.thumbnailDirect;
+      if (s.thumbnail) {
+        const m = String(s.thumbnail).match(/\/d\/([a-zA-Z0-9_-]+)/) || String(s.thumbnail).match(/id=([a-zA-Z0-9_-]+)/);
+        if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w500`;
+        return s.thumbnail;
+      }
+      if (live?.thumbnailDirect) return live.thumbnailDirect;
+      return 'https://via.placeholder.com/400x180?text=Project';
+    }
+
     onAuthStateChanged(auth, async (user) => {
       if (!user) {
         location.href = 'index.html';
         return;
       }
 
-      // Received = approved
-      const receivedQ = query(collection(db, 'purchases'), where('buyerId', '==', user.uid), where('status', '==', 'approved'));
-      const receivedSnap = await getDocs(receivedQ);
+      const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
+      const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
+      const pendingDocs = allBuy.docs.filter(d => ['pending', 'rejected'].includes(d.data().status));
       const receivedEl = document.getElementById('receivedList');
-      if (receivedSnap.empty) {
+      const pendingEl = document.getElementById('pendingList');
+
+      if (receivedDocs.length === 0) {
         receivedEl.innerHTML = '<div class="col-12 text-center text-muted py-4">لا توجد مشتريات مستلمة بعد</div>';
       } else {
-        receivedEl.innerHTML = '';
-        // include owned_free as well - re-query simpler
-        const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
-        const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
-        let anyReceived = false;
-        receivedEl.innerHTML = '';
+        let html = '';
         for (const d of receivedDocs) {
           const p = d.data();
-          let filesHtml = '';
-          let title = p.projectTitle || 'منتج';
-          // استخدم اللقطة أولاً (تبقى حتى بعد حذف التاجر)
           const snap = p.snapshot || {};
-          if (snap.filesLink) {
-            filesHtml = `<a href="${snap.filesLink}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> تحميل المشروع</a>`;
-          }
-          if (snap.title) title = snap.title;
-          // لو مفيش لقطة جرّب المشروع الحي
-          if (!filesHtml && p.projectId) {
+          let live = null;
+          if (p.projectId) {
             try {
-              const projSnap = await getDoc(doc(db, 'projects', p.projectId));
-              if (projSnap.exists() && projSnap.data().status !== 'deleted') {
-                const pd = projSnap.data();
-                if (pd.filesLink) filesHtml = `<a href="${pd.filesLink}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> تحميل المشروع</a>`;
-                title = pd.title || title;
-              }
+              const ps = await getDoc(doc(db, 'projects', p.projectId));
+              if (ps.exists()) live = ps.data();
             } catch(e){}
           }
-          anyReceived = true;
-          receivedEl.innerHTML += `
-            <div class="col-md-6">
-              <div class="card h-100">
+          const title = snap.title || live?.title || p.projectTitle || 'منتج';
+          const desc = (snap.description || live?.description || '').slice(0, 80);
+          const img = thumbUrl(snap, live);
+          const filesLink = snap.filesLink || (live && live.status !== 'deleted' ? live.filesLink : '');
+          const badge = p.status === 'owned_free'
+            ? '<span class="badge bg-primary position-absolute top-0 start-0 m-2">من المشتريات · مجاني</span>'
+            : '<span class="badge bg-success position-absolute top-0 start-0 m-2">من المشتريات</span>';
+          html += `
+            <div class="col-md-6 col-lg-4">
+              <div class="card h-100 shadow-sm position-relative overflow-hidden">
+                <div class="position-relative">
+                  <img src="${img}" class="card-img-top" style="height:160px;object-fit:cover;" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                  ${badge}
+                </div>
                 <div class="card-body">
-                  <h5 class="card-title">${title}</h5>
-                  <p class="text-success"><i class="fas fa-check-circle"></i> ${p.status === 'owned_free' ? 'مجاني - محفوظ في مشترياتك' : 'تم القبول - يمكنك التحميل'}</p>
-                  <div class="small text-muted mb-1">ID: ${p.projectId || d.id}</div>
-                  <div>${filesHtml || '<span class="text-muted">لا توجد ملفات</span>'}</div>
+                  <h6 class="card-title">${title}</h6>
+                  <p class="small text-muted text-truncate">${desc}</p>
+                  <div class="small text-muted mb-2">ID: ${p.projectId || d.id}</div>
+                  ${filesLink
+                    ? `<a href="${filesLink}" target="_blank" class="btn btn-sm btn-primary-custom text-white"><i class="fas fa-download me-1"></i>تحميل</a>`
+                    : '<span class="text-muted small">لا يوجد رابط تحميل</span>'}
+                  ${p.projectId && live && live.status === 'active' ? `<a href="product.html?id=${p.projectId}" class="btn btn-sm btn-outline-secondary ms-1">عرض</a>` : ''}
                 </div>
               </div>
-            </div>
-          `;
+            </div>`;
         }
-        if (!anyReceived) {
-          receivedEl.innerHTML = '<div class="col-12 text-center text-muted py-4">لا توجد مشتريات مستلمة بعد</div>';
-        }
+        receivedEl.innerHTML = html;
       }
 
-      // Pending
-      const pendingQ = query(collection(db, 'purchases'), where('buyerId', '==', user.uid), where('status', 'in', ['pending', 'rejected']));
-      const pendingSnap = await getDocs(pendingQ);
-      const pendingEl = document.getElementById('pendingList');
-      if (pendingSnap.empty) {
+      if (pendingDocs.length === 0) {
         pendingEl.innerHTML = '<div class="col-12 text-center text-muted py-4">لا توجد طلبات قيد المراجعة</div>';
       } else {
-        pendingEl.innerHTML = pendingSnap.docs.map(d => {
+        pendingEl.innerHTML = pendingDocs.map(d => {
           const p = d.data();
-          let statusBadge = p.status === 'pending' 
-            ? '<span class="badge bg-warning text-dark">قيد المراجعة</span>' 
-            : `<span class="badge bg-danger">مرفوض</span>`;
+          const snap = p.snapshot || {};
+          const img = thumbUrl(snap, null);
+          const statusBadge = p.status === 'pending'
+            ? '<span class="badge bg-warning text-dark">قيد المراجعة</span>'
+            : '<span class="badge bg-danger">مرفوض</span>';
           let extra = '';
           if (p.status === 'rejected') {
             extra = `<p class="text-danger small mt-2">السبب: ${p.rejectionReason || 'غير محدد'}</p>`;
-            if (p.retryAllowed) {
-              extra += `<button class="btn btn-sm btn-outline-primary mt-1 retry-btn" data-id="${d.id}">رفع صورة تحويل جديدة</button>`;
-            }
           }
           return `
-            <div class="col-md-6">
-              <div class="card h-100">
+            <div class="col-md-6 col-lg-4">
+              <div class="card h-100 shadow-sm">
+                <img src="${img}" class="card-img-top" style="height:140px;object-fit:cover;" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
                 <div class="card-body">
-                  <h5 class="card-title">${p.projectTitle}</h5>
-                  <p>المبلغ: ${p.amount} ج.م ${statusBadge}</p>
+                  <h6>${snap.title || p.projectTitle || '-'}</h6>
+                  <p class="mb-1">المبلغ: ${p.amount || 0} ج.م ${statusBadge}</p>
                   ${extra}
                 </div>
               </div>
-            </div>
-          `;
+            </div>`;
         }).join('');
       }
     });
