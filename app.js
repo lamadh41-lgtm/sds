@@ -103,9 +103,14 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
   e.preventDefault();
   const name = document.getElementById('regName').value.trim();
   const email = document.getElementById('regEmail').value.trim();
+  const phone = document.getElementById('regPhone')?.value.trim() || '';
   const pass = document.getElementById('regPassword').value;
   const pass2 = document.getElementById('regPassword2').value;
 
+  if (!phone) {
+    showToast('يجب إدخال رقم الهاتف', 'error');
+    return;
+  }
   if (pass !== pass2) {
     showToast('كلمتا المرور غير متطابقتين', 'error');
     return;
@@ -122,11 +127,11 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
     await setDoc(doc(db, 'users', cred.user.uid), {
       name,
       email,
+      phone,
       createdAt: serverTimestamp(),
       banned: false,
       deleted: false,
       role: 'user',
-      phone: '',
       bio: ''
     });
     showToast('تم إنشاء الحساب بنجاح! مرحباً بك');
@@ -236,3 +241,25 @@ document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
 // Export for other pages
 window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData };
 export { showToast, showLoading, getInitials };
+
+// إخفاء حقول الدفع لو السعر = 0
+function togglePaymentFields() {
+  const price = parseFloat(document.getElementById('projPrice')?.value) || 0;
+  const fields = document.getElementById('paymentFields');
+  if (!fields) return;
+  if (price <= 0) {
+    fields.style.display = 'none';
+    document.getElementById('projPayMethod')?.removeAttribute('required');
+    document.getElementById('projPayNumber')?.removeAttribute('required');
+    document.getElementById('projPayName')?.removeAttribute('required');
+  } else {
+    fields.style.display = 'block';
+    document.getElementById('projPayMethod')?.setAttribute('required', 'required');
+    document.getElementById('projPayNumber')?.setAttribute('required', 'required');
+    document.getElementById('projPayName')?.setAttribute('required', 'required');
+  }
+}
+document.getElementById('projPrice')?.addEventListener('input', togglePaymentFields);
+document.addEventListener('DOMContentLoaded', togglePaymentFields);
+// لو المودال اتفتح
+document.getElementById('uploadModal')?.addEventListener('shown.bs.modal', togglePaymentFields);

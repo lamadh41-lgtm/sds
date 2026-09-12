@@ -1,15 +1,18 @@
 /* ===== متجر مصران / Misram Engine Store - Custom Styles ===== */
 :root {
-  --primary: #0d6efd;
-  --primary-dark: #0a58ca;
-  --success: #198754;
-  --danger: #dc3545;
+  --primary: #d4af37;
+  --primary-dark: #b8860b;
+  --success: #2e7d32;
+  --danger: #c62828;
   --warning: #ffc107;
-  --dark: #212529;
-  --light: #f8f9fa;
-  --gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --gradient-hero: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e57c2 100%);
-  --shadow: 0 10px 40px rgba(0,0,0,0.15);
+  --dark: #1a120b;
+  --light: #faf6e9;
+  --gold: #d4af37;
+  --gold-light: #f5e6b8;
+  --gold-dark: #8b6914;
+  --gradient: linear-gradient(135deg, #d4af37 0%, #f5e6b8 45%, #b8860b 100%);
+  --gradient-hero: linear-gradient(135deg, #1a120b 0%, #3d2914 35%, #8b6914 70%, #d4af37 100%);
+  --shadow: 0 12px 40px rgba(212,175,55,0.22);
   --radius: 16px;
 }
 
@@ -21,8 +24,8 @@
 
 body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background: #f0f2f5;
-  color: #333;
+  background: linear-gradient(180deg, #faf6e9 0%, #f0e6d0 100%);
+  color: #2c2118;
   line-height: 1.6;
   overflow-x: hidden;
 }
