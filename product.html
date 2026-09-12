@@ -134,18 +134,23 @@
     }
 
     let hasPurchased = false;
+    let hasPending = false;
     let isOwner = false;
 
     async function checkPurchase() {
       hasPurchased = false;
+      hasPending = false;
       isOwner = false;
       if (!currentUser || !projectId) return;
       isOwner = projectData && projectData.sellerId === currentUser.uid;
       try {
         const snap = await getDocs(collection(db, 'purchases'));
-        hasPurchased = snap.docs.some(d => {
+        snap.docs.forEach(d => {
           const x = d.data();
-          return x.buyerId === currentUser.uid && x.projectId === projectId && (x.status === 'approved' || x.status === 'owned_free');
+          if (x.buyerId === currentUser.uid && x.projectId === projectId) {
+            if (x.status === 'approved' || x.status === 'owned_free') hasPurchased = true;
+            if (x.status === 'pending') hasPending = true;
+          }
         });
       } catch(e) {}
     }
@@ -161,6 +166,8 @@
         priceHtml = '<span class="badge bg-info fs-5"><i class="fas fa-lightbulb me-1"></i>من إبداعاتك</span>';
       } else if (hasPurchased) {
         priceHtml = '<span class="badge bg-success fs-5"><i class="fas fa-check me-1"></i>تم شراؤه</span>';
+      } else if (hasPending) {
+        priceHtml = '<span class="badge bg-warning text-dark fs-5"><i class="fas fa-clock me-1"></i>قيد مراجعة الطلب</span>';
       } else if (isFree) {
         priceHtml = '<span class="badge bg-primary fs-5">مجاني</span>';
       } else {
@@ -174,6 +181,9 @@
       let actionBtn = '';
       if (canDownload) {
         actionBtn = `<button class="btn btn-primary-custom text-white btn-lg" id="downloadFreeBtn"><i class="fas fa-download me-2"></i>تحميل المشروع</button>`;
+      } else if (hasPending) {
+        actionBtn = `<button class="btn btn-warning btn-lg" disabled><i class="fas fa-hourglass-half me-2"></i>يتم مراجعة الطلب</button>
+          <p class="text-muted small mt-2 mb-0">طلب الشراء قيد المراجعة من الإدارة. بعد القبول سيظهر زر التحميل.</p>`;
       } else if (isFree) {
         actionBtn = `<button class="btn btn-primary-custom text-white btn-lg" id="addToPurchasesBtn"><i class="fas fa-plus me-2"></i>أضف إلى مشترياتي</button>`;
       } else {

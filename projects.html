@@ -132,8 +132,41 @@
     let lastDoc = null;
     let currentPage = 1;
     let allDocs = [];
+    let myOwnedIds = new Set();
+    let myPurchasedIds = new Set();
+    let currentUser = null;
+
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user;
+      myOwnedIds = new Set();
+      myPurchasedIds = new Set();
+      if (user) {
+        const uploadBtn = document.getElementById('uploadFromProjects');
+        if (uploadBtn) {
+          uploadBtn.style.display = 'inline-block';
+          uploadBtn.onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
+        }
+        try {
+          const [projSnap, purchSnap] = await Promise.all([
+            getDocs(collection(db, 'projects')),
+            getDocs(collection(db, 'purchases'))
+          ]);
+          projSnap.docs.forEach(d => {
+            if (d.data().sellerId === user.uid) myOwnedIds.add(d.id);
+          });
+          purchSnap.docs.forEach(d => {
+            const x = d.data();
+            if (x.buyerId === user.uid && (x.status === 'approved' || x.status === 'owned_free')) {
+              myPurchasedIds.add(x.projectId);
+            }
+          });
+        } catch (e) { console.error(e); }
+      }
+      loadProjects(currentPage || 1);
+    });
 
     async function loadProjects(page = 1) {
+      currentPage = page;
       const grid = document.getElementById('projectsGrid');
       grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
@@ -167,11 +200,18 @@
           const verified = p.isOfficial 
             ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>' 
             : '';
+          let ownerBadge = '';
+          if (myOwnedIds.has(d.id)) {
+            ownerBadge = '<span class="thumb-badge thumb-badge-mine">إبداعاتي</span>';
+          } else if (myPurchasedIds.has(d.id)) {
+            ownerBadge = '<span class="thumb-badge thumb-badge-bought">مشترياتي</span>';
+          }
           return `
             <div class="col-md-4 col-sm-6">
               <div class="project-card h-100">
-                <a href="product.html?id=${d.id}" class="text-decoration-none">
+                <a href="product.html?id=${d.id}" class="text-decoration-none position-relative d-block">
                   <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                  ${ownerBadge}
                 </a>
                 <div class="project-body">
                   <a href="product.html?id=${d.id}" class="text-decoration-none text-dark">
@@ -213,14 +253,7 @@
       }
     }
 
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        document.getElementById('uploadFromProjects').style.display = 'inline-block';
-        document.getElementById('uploadFromProjects').onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
-      }
-    });
-
-    // منع التكرار: منطق الرفع موجود في app.js فقط (تم إزالة النسخة المكررة)
+    // منع التكرار: منطق الرفع موجود في app.js فقط
     document.getElementById('commissionTermsLink')?.addEventListener('click', e => {
       e.preventDefault();
       document.getElementById('commissionTermsText').classList.toggle('d-none');
@@ -230,8 +263,6 @@
     document.getElementById('uploadForm')?.addEventListener('submit', () => {
       setTimeout(() => loadProjects(1), 1500);
     });
-
-    loadProjects(1);
   </script>
 </body>
 </html>
