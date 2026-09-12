@@ -95,7 +95,15 @@
             </div>
             <div class="alert alert-info">عمولة 5% من السعر. <a href="#" id="commissionTermsLink">الشروط</a></div>
             <div id="commissionTermsText" class="alert alert-secondary d-none">الشروط سيتم إضافتها لاحقاً.</div>
-            <button type="submit" class="btn btn-primary-custom text-white w-100">نشر المشروع</button>
+            <div class="d-grid gap-2">
+              <button type="button" class="btn btn-primary-custom text-white" id="submitReviewBtn">
+                <i class="fas fa-paper-plane me-1"></i> إرسال المشروع للمراجعة
+              </button>
+              <button type="button" class="btn btn-outline-secondary" id="saveDraftBtn">
+                <i class="fas fa-save me-1"></i> حفظ المشروع
+              </button>
+            </div>
+            <p class="small text-muted mt-2 mb-0">بعد الإرسال للمراجعة لن تتمكن من التعديل. يمكنك الحفظ كمسودة أولاً.</p>
           </form>
         </div>
       </div>
@@ -126,7 +134,7 @@
         const snap = await getDocs(collection(db, 'projects'));
         allDocs = snap.docs.filter(d => {
           const data = d.data();
-          return !data.status || data.status === 'active';
+          return data.status === 'active';
         });
         // ترتيب يدوي
         allDocs.sort((a, b) => {

@@ -127,15 +127,18 @@
     }
 
     let hasPurchased = false;
+    let isOwner = false;
 
     async function checkPurchase() {
       hasPurchased = false;
+      isOwner = false;
       if (!currentUser || !projectId) return;
+      isOwner = projectData && projectData.sellerId === currentUser.uid;
       try {
         const snap = await getDocs(collection(db, 'purchases'));
         hasPurchased = snap.docs.some(d => {
           const x = d.data();
-          return x.buyerId === currentUser.uid && x.projectId === projectId && x.status === 'approved';
+          return x.buyerId === currentUser.uid && x.projectId === projectId && (x.status === 'approved' || x.status === 'owned_free');
         });
       } catch(e) {}
     }
@@ -144,10 +147,12 @@
       await checkPurchase();
       const p = projectData;
       const isFree = p.isFree || p.price === 0;
-      const canDownload = isFree || hasPurchased;
+      const canDownload = hasPurchased || isOwner;
 
       let priceHtml = '';
-      if (hasPurchased) {
+      if (isOwner) {
+        priceHtml = '<span class="badge bg-info fs-5"><i class="fas fa-lightbulb me-1"></i>من إبداعاتك</span>';
+      } else if (hasPurchased) {
         priceHtml = '<span class="badge bg-success fs-5"><i class="fas fa-check me-1"></i>تم شراؤه</span>';
       } else if (isFree) {
         priceHtml = '<span class="badge bg-primary fs-5">مجاني</span>';
@@ -162,8 +167,10 @@
       let actionBtn = '';
       if (canDownload) {
         actionBtn = `<button class="btn btn-primary-custom text-white btn-lg" id="downloadFreeBtn"><i class="fas fa-download me-2"></i>تحميل المشروع</button>`;
+      } else if (isFree) {
+        actionBtn = `<button class="btn btn-primary-custom text-white btn-lg" id="addToPurchasesBtn"><i class="fas fa-plus me-2"></i>أضف إلى مشترياتي</button>`;
       } else {
-        actionBtn = `<button class="btn btn-success btn-lg" id="buyBtn"><i class="fas fa-shopping-cart me-2"></i>شراء المنتج</button>`;
+        actionBtn = `<button class="btn btn-success btn-lg" id="buyBtn"><i class="fas fa-shopping-cart me-2"></i>إنشاء طلب الشراء</button>`;
       }
 
       let thumbSrc = 'https://via.placeholder.com/500x300?text=No+Image';
@@ -174,16 +181,8 @@
         else thumbSrc = p.thumbnail;
       }
 
-      // لا نظهر رابط الملفات إلا بعد الشراء أو لو مجاني
-      const filesSection = canDownload && p.filesLink
-        ? `<div class="p-3 rounded-3 mb-3" style="background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.3)">
-             <i class="fas fa-cloud-download-alt me-2 text-warning"></i>
-             <strong>ملف المشروع جاهز للتحميل</strong><br>
-             <a href="${p.filesLink}" target="_blank" class="btn btn-warning btn-sm mt-2 text-dark fw-bold">
-               <i class="fas fa-download me-1"></i> تحميل / فتح المشروع
-             </a>
-           </div>`
-        : (canDownload ? '<div class="text-muted mb-3">لا يوجد رابط مشروع</div>' : '');
+      // زر تحميل واحد فقط في منطقة الإجراءات — بدون زر إضافي
+      const filesSection = '';
 
       document.getElementById('productContent').innerHTML = `
         <div class="row">
@@ -210,6 +209,7 @@
 
       document.getElementById('downloadFreeBtn')?.addEventListener('click', handleFreeDownload);
       document.getElementById('buyBtn')?.addEventListener('click', handleBuyClick);
+      document.getElementById('addToPurchasesBtn')?.addEventListener('click', handleAddToPurchases);
       document.querySelector('.copy-prod-id')?.addEventListener('click', async (e) => {
         e.preventDefault();
         try {
@@ -217,6 +217,46 @@
           showToast('تم نسخ الـ ID');
         } catch { showToast('تعذر النسخ', 'error'); }
       });
+    }
+
+    async function handleAddToPurchases() {
+      if (!currentUser) {
+        showToast('يجب تسجيل الدخول أولاً', 'error');
+        return;
+      }
+      showLoading(true);
+      try {
+        const p = projectData;
+        await addDoc(collection(db, 'purchases'), {
+          projectId,
+          projectTitle: p.title,
+          buyerId: currentUser.uid,
+          buyerEmail: currentUser.email,
+          sellerId: p.sellerId,
+          amount: 0,
+          status: 'owned_free',
+          // لقطة كاملة من المشروع — تبقى حتى لو حُذف الأصل
+          snapshot: {
+            title: p.title,
+            description: p.description,
+            thumbnail: p.thumbnail,
+            thumbnailDirect: p.thumbnailDirect,
+            filesLink: p.filesLink,
+            files: p.files || [],
+            sellerName: p.sellerName,
+            price: p.price,
+            isFree: true
+          },
+          createdAt: serverTimestamp()
+        });
+        showToast('تمت الإضافة إلى مشترياتك');
+        hasPurchased = true;
+        renderProduct();
+      } catch (err) {
+        showToast('خطأ: ' + err.message, 'error');
+      } finally {
+        showLoading(false);
+      }
     }
 
     async function handleFreeDownload() {
@@ -269,15 +309,27 @@
       }
       showLoading(true);
       try {
+        const p = projectData;
         await addDoc(collection(db, 'purchases'), {
           projectId,
-          projectTitle: projectData.title,
+          projectTitle: p.title,
           buyerId: currentUser.uid,
           buyerEmail: currentUser.email,
-          sellerId: projectData.sellerId,
-          amount: projectData.price,
+          sellerId: p.sellerId,
+          amount: p.price,
           transferImage: transferLink,
           status: 'pending',
+          snapshot: {
+            title: p.title,
+            description: p.description,
+            thumbnail: p.thumbnail,
+            thumbnailDirect: p.thumbnailDirect,
+            filesLink: p.filesLink,
+            files: p.files || [],
+            sellerName: p.sellerName,
+            price: p.price,
+            isFree: false
+          },
           createdAt: serverTimestamp(),
           rejectionReason: '',
           retryAllowed: false

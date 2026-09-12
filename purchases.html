@@ -66,32 +66,39 @@
         receivedEl.innerHTML = '<div class="col-12 text-center text-muted py-4">لا توجد مشتريات مستلمة بعد</div>';
       } else {
         receivedEl.innerHTML = '';
+        // include owned_free as well - re-query simpler
+        const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
+        const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
         let anyReceived = false;
-        for (const d of receivedSnap.docs) {
+        receivedEl.innerHTML = '';
+        for (const d of receivedDocs) {
           const p = d.data();
           let filesHtml = '';
-          let deleted = false;
-          try {
-            const projSnap = await getDoc(doc(db, 'projects', p.projectId));
-            if (!projSnap.exists() || projSnap.data().status === 'deleted') {
-              deleted = true;
-            } else {
-              const pd = projSnap.data();
-              if (pd.filesLink) {
-                filesHtml = `<a href="${pd.filesLink}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> تحميل المشروع</a>`;
+          let title = p.projectTitle || 'منتج';
+          // استخدم اللقطة أولاً (تبقى حتى بعد حذف التاجر)
+          const snap = p.snapshot || {};
+          if (snap.filesLink) {
+            filesHtml = `<a href="${snap.filesLink}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> تحميل المشروع</a>`;
+          }
+          if (snap.title) title = snap.title;
+          // لو مفيش لقطة جرّب المشروع الحي
+          if (!filesHtml && p.projectId) {
+            try {
+              const projSnap = await getDoc(doc(db, 'projects', p.projectId));
+              if (projSnap.exists() && projSnap.data().status !== 'deleted') {
+                const pd = projSnap.data();
+                if (pd.filesLink) filesHtml = `<a href="${pd.filesLink}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> تحميل المشروع</a>`;
+                title = pd.title || title;
               }
-              const files = pd.files || [];
-              filesHtml += files.map(f => `<a href="${f.url}" target="_blank" class="btn btn-sm btn-outline-primary me-1 mb-1"><i class="fas fa-download"></i> ${f.name}</a>`).join('');
-            }
-          } catch(e){}
-          if (deleted) continue; // منتج محذوف - لا يظهر في المستلمة
+            } catch(e){}
+          }
           anyReceived = true;
           receivedEl.innerHTML += `
             <div class="col-md-6">
               <div class="card h-100">
                 <div class="card-body">
-                  <h5 class="card-title">${p.projectTitle}</h5>
-                  <p class="text-success"><i class="fas fa-check-circle"></i> تم القبول - يمكنك التحميل</p>
+                  <h5 class="card-title">${title}</h5>
+                  <p class="text-success"><i class="fas fa-check-circle"></i> ${p.status === 'owned_free' ? 'مجاني - محفوظ في مشترياتك' : 'تم القبول - يمكنك التحميل'}</p>
                   <div class="small text-muted mb-1">ID: ${p.projectId || d.id}</div>
                   <div>${filesHtml || '<span class="text-muted">لا توجد ملفات</span>'}</div>
                 </div>

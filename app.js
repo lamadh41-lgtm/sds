@@ -242,6 +242,7 @@ onAuthStateChanged(auth, async (user) => {
         <ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="account.html"><i class="fas fa-user me-2"></i>حسابي</a></li>
           <li><a class="dropdown-item" href="purchases.html"><i class="fas fa-shopping-bag me-2"></i>مشترياتي</a></li>
+          <li><a class="dropdown-item" href="my-creations.html"><i class="fas fa-lightbulb me-2"></i>إبداعاتي</a></li>
           <li><a class="dropdown-item" href="#" id="openUploadBtn"><i class="fas fa-cloud-upload-alt me-2"></i>شارك إبداعاتك</a></li>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fas fa-sign-out-alt me-2"></i>تسجيل الخروج</a></li>
@@ -293,77 +294,94 @@ function getDriveImageUrl(link) {
   const match2 = link.match(/id=([a-zA-Z0-9_-]+)/);
   if (match1) id = match1[1];
   else if (match2) id = match2[1];
-  if (id) return `https://drive.google.com/uc?export=view&id=${id}`;
+  // thumbnail API أكثر استقراراً للعرض
+  if (id) return `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
   return link;
 }
 
-let isPublishing = false;
-document.getElementById('uploadForm')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  if (isPublishing) return;
+function collectProjectFormData() {
   if (!currentUser) {
     showToast('يجب تسجيل الدخول أولاً', 'error');
-    return;
+    return null;
   }
-
-  const title = document.getElementById('projTitle').value.trim();
-  const desc = document.getElementById('projDesc').value.trim();
-  const price = parseFloat(document.getElementById('projPrice').value) || 0;
+  const title = document.getElementById('projTitle')?.value.trim() || '';
+  const desc = document.getElementById('projDesc')?.value.trim() || '';
+  const price = parseFloat(document.getElementById('projPrice')?.value) || 0;
   let payMethod = document.getElementById('projPayMethod')?.value || '';
   let payNumber = document.getElementById('projPayNumber')?.value.trim() || '';
   let payName = document.getElementById('projPayName')?.value.trim() || '';
-  const thumbLink = document.getElementById('projThumbLink').value.trim();
-  const filesLink = document.getElementById('projFilesLink').value.trim();
+  const thumbLink = document.getElementById('projThumbLink')?.value.trim() || '';
+  const filesLink = document.getElementById('projFilesLink')?.value.trim() || '';
 
+  if (!title || !desc) {
+    showToast('أدخل اسم المشروع والوصف', 'error');
+    return null;
+  }
   if (!thumbLink || !filesLink) {
     showToast('يجب إدخال رابط الصورة ورابط الملفات من جوجل درايف', 'error');
-    return;
+    return null;
   }
   if (price > 0 && (!payMethod || !payNumber || !payName)) {
     showToast('أدخل بيانات المحفظة لأن السعر أكبر من صفر', 'error');
-    return;
+    return null;
   }
   if (price <= 0) {
-    payMethod = '';
-    payNumber = '';
-    payName = '';
+    payMethod = ''; payNumber = ''; payName = '';
   }
+  return {
+    title, description: desc, price, isFree: price === 0,
+    thumbnail: thumbLink,
+    thumbnailDirect: getDriveImageUrl(thumbLink),
+    filesLink, files: [],
+    sellerId: currentUser.uid,
+    sellerName: currentUserData?.name || currentUser.displayName || '',
+    paymentMethod: payMethod, paymentNumber: payNumber, paymentName: payName,
+    commission: 5, isOfficial: false, downloads: 0, sales: 0
+  };
+}
 
+let isPublishing = false;
+async function saveProjectWithStatus(status, successMsg) {
+  if (isPublishing) return;
+  const data = collectProjectFormData();
+  if (!data) return;
+  if (status === 'pending_review') {
+    if (!confirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\nلن تتمكن من التعديل بعد الإرسال، ويمكنك الحذف فقط أو إلغاء طلب المراجعة.')) return;
+  }
   isPublishing = true;
   showLoading(true);
   try {
-    // حفظ المشروع بروابط الدرايف فقط (من غير Storage)
     await addDoc(collection(db, 'projects'), {
-      title,
-      description: desc,
-      price,
-      isFree: price === 0,
-      thumbnail: thumbLink,
-      thumbnailDirect: getDriveImageUrl(thumbLink),
-      filesLink: filesLink,
-      files: [],
-      sellerId: currentUser.uid,
-      sellerName: currentUserData?.name || currentUser.displayName,
-      paymentMethod: payMethod,
-      paymentNumber: payNumber,
-      paymentName: payName,
-      commission: 5,
-      status: 'active',
-      isOfficial: false,
+      ...data,
+      status,
       createdAt: serverTimestamp(),
-      downloads: 0,
-      sales: 0
+      updatedAt: serverTimestamp()
     });
-
-    showToast('تم نشر المشروع بنجاح!');
-    bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
-    document.getElementById('uploadForm').reset();
+    showToast(successMsg);
+    bootstrap.Modal.getInstance(document.getElementById('uploadModal'))?.hide();
+    document.getElementById('uploadForm')?.reset();
+    const pf = document.getElementById('paymentFields');
+    if (pf) pf.style.display = 'none';
   } catch (err) {
     console.error(err);
-    showToast('حدث خطأ أثناء نشر المشروع: ' + err.message, 'error');
+    showToast('حدث خطأ: ' + err.message, 'error');
   } finally {
     isPublishing = false;
     showLoading(false);
+  }
+}
+
+// منع الـ submit التقليدي
+document.getElementById('uploadForm')?.addEventListener('submit', (e) => e.preventDefault());
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#saveDraftBtn')) {
+    e.preventDefault();
+    saveProjectWithStatus('draft', 'تم حفظ المشروع في إبداعاتك (لم يُرسل للمراجعة)');
+  }
+  if (e.target.closest('#submitReviewBtn')) {
+    e.preventDefault();
+    saveProjectWithStatus('pending_review', 'تم إرسال المشروع للمراجعة. سيتم قبوله في أقرب وقت إن شاء الله');
   }
 });
 

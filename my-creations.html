@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>إبداعاتي | متجر مصران</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-custom">
+    <div class="container">
+      <a class="navbar-brand" href="index.html"><i class="fas fa-code me-2"></i>متجر مصران</a>
+      <div class="d-flex align-items-center gap-3" id="authArea"></div>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+      <h2 class="mb-0"><i class="fas fa-lightbulb me-2"></i>إبداعاتي</h2>
+      <button class="btn btn-primary-custom text-white" id="openNewProject">
+        <i class="fas fa-plus me-1"></i> مشروع جديد
+      </button>
+    </div>
+
+    <ul class="nav nav-pills mb-4 gap-2" id="creationsTabs">
+      <li class="nav-item"><button class="nav-link active" data-tab="active">المنشور</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="pending_review">تحت المراجعة</button></li>
+      <li class="nav-item"><button class="nav-link" data-tab="draft">لم يُرسل للمراجعة</button></li>
+    </ul>
+
+    <div id="creationsList" class="row g-3">
+      <div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>
+    </div>
+  </div>
+
+  <!-- Edit Modal -->
+  <div class="modal fade" id="editProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">تعديل المشروع</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="editProjectForm">
+            <input type="hidden" id="editProjId">
+            <div class="mb-3">
+              <label class="form-label">اسم المشروع *</label>
+              <input type="text" class="form-control" id="editTitle" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">الوصف *</label>
+              <textarea class="form-control" id="editDesc" rows="4" required></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">رابط الصورة المصغرة *</label>
+              <input type="url" class="form-control" id="editThumb" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">رابط الملفات *</label>
+              <input type="url" class="form-control" id="editFiles" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">السعر</label>
+              <input type="number" class="form-control" id="editPrice" min="0" value="0">
+            </div>
+            <div id="editPaymentFields" style="display:none;">
+              <div class="row">
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">طريقة الاستلام</label>
+                  <select class="form-select" id="editPayMethod">
+                    <option value="">اختر...</option>
+                    <option value="vodafone">فودافون كاش</option>
+                    <option value="etisalat">اتصالات كاش</option>
+                    <option value="orange">أورنج كاش</option>
+                    <option value="we">وي كاش</option>
+                    <option value="instapay">إنستاباي</option>
+                  </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">رقم المحفظة</label>
+                  <input type="text" class="form-control" id="editPayNumber">
+                </div>
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">اسم الحساب</label>
+                  <input type="text" class="form-control" id="editPayName">
+                </div>
+              </div>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-primary-custom text-white">حفظ التعديلات</button>
+              <button type="button" class="btn btn-outline-primary" id="editAndSubmitBtn">حفظ وإرسال للمراجعة</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload modal placeholder - redirect uses app -->
+  <div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">شارك إبداعاتك</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted">يفضّل إنشاء المشروع من الصفحة الرئيسية أو المشاريع لنفس النموذج الكامل.</p>
+          <a href="projects.html" class="btn btn-primary-custom text-white">الذهاب لصفحة المشاريع</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+  <div class="spinner-overlay d-none" id="loadingOverlay">
+    <div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { auth, db, onAuthStateChanged, collection, getDocs, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from './firebase.js';
+    import { showToast, showLoading, getInitials } from './app.js';
+
+    let currentUser = null;
+    let currentTab = 'active';
+    let allMyProjects = [];
+
+    function getDriveImageUrl(link) {
+      if (!link) return '';
+      const m = link.match(/\/d\/([a-zA-Z0-9_-]+)/) || link.match(/id=([a-zA-Z0-9_-]+)/);
+      if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
+      return link;
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { location.href = 'index.html'; return; }
+      currentUser = user;
+      await loadMine();
+    });
+
+    document.querySelectorAll('#creationsTabs [data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#creationsTabs .nav-link').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTab = btn.dataset.tab;
+        renderList();
+      });
+    });
+
+    document.getElementById('openNewProject')?.addEventListener('click', () => {
+      location.href = 'projects.html';
+    });
+
+    async function loadMine() {
+      const list = document.getElementById('creationsList');
+      list.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border text-primary"></div></div>';
+      try {
+        const snap = await getDocs(collection(db, 'projects'));
+        allMyProjects = snap.docs
+          .filter(d => d.data().sellerId === currentUser.uid && d.data().status !== 'deleted')
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+        renderList();
+      } catch (e) {
+        list.innerHTML = `<div class="col-12 alert alert-danger">${e.message}</div>`;
+      }
+    }
+
+    function renderList() {
+      const list = document.getElementById('creationsList');
+      let items = allMyProjects.filter(p => {
+        if (currentTab === 'active') return p.status === 'active';
+        if (currentTab === 'pending_review') return p.status === 'pending_review';
+        if (currentTab === 'draft') return p.status === 'draft' || p.status === 'rejected';
+        return false;
+      });
+
+      if (items.length === 0) {
+        list.innerHTML = '<div class="col-12"><div class="alert alert-info">لا توجد مشاريع في هذا القسم</div></div>';
+        return;
+      }
+
+      list.innerHTML = items.map(p => {
+        const img = p.thumbnailDirect || getDriveImageUrl(p.thumbnail) || 'https://via.placeholder.com/400x180?text=Project';
+        let actions = '';
+        if (currentTab === 'draft') {
+          actions = `
+            <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${p.id}">تعديل</button>
+            <button class="btn btn-sm btn-primary submit-btn" data-id="${p.id}">إرسال للمراجعة</button>
+            <button class="btn btn-sm btn-outline-danger del-btn" data-id="${p.id}">حذف</button>`;
+        } else if (currentTab === 'pending_review') {
+          actions = `
+            <button class="btn btn-sm btn-warning cancel-btn" data-id="${p.id}">إلغاء الطلب</button>
+            <button class="btn btn-sm btn-outline-danger del-btn" data-id="${p.id}">حذف</button>`;
+        } else {
+          actions = `
+            <a href="product.html?id=${p.id}" class="btn btn-sm btn-outline-primary">عرض</a>
+            <button class="btn btn-sm btn-outline-danger del-btn" data-id="${p.id}">حذف</button>`;
+        }
+        const statusBadge = p.status === 'rejected'
+          ? `<span class="badge bg-danger">مرفوض</span> <small class="text-danger">${p.rejectReason || ''}</small>`
+          : '';
+        return `
+          <div class="col-md-6 col-lg-4">
+            <div class="card h-100 shadow-sm">
+              <img src="${img}" class="card-img-top" style="height:160px;object-fit:cover;" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+              <div class="card-body">
+                <h6 class="card-title">${p.title || '-'}</h6>
+                <p class="small text-muted text-truncate">${p.description || ''}</p>
+                <p class="mb-2"><strong>${p.price || 0} ج.م</strong> ${statusBadge}</p>
+                <div class="small text-muted mb-2">ID: ${p.id}</div>
+                <div class="d-flex flex-wrap gap-1">${actions}</div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+
+      list.querySelectorAll('.del-btn').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('هل أنت متأكد من حذف هذا المشروع؟')) return;
+          showLoading(true);
+          try {
+            await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'deleted', deletedAt: serverTimestamp() });
+            showToast('تم الحذف');
+            await loadMine();
+          } catch (e) { showToast(e.message, 'error'); }
+          finally { showLoading(false); }
+        };
+      });
+
+      list.querySelectorAll('.submit-btn').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\\nلن تتمكن من التعديل بعد الإرسال.')) return;
+          showLoading(true);
+          try {
+            await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'pending_review', submittedAt: serverTimestamp() });
+            showToast('تم الإرسال للمراجعة');
+            await loadMine();
+          } catch (e) { showToast(e.message, 'error'); }
+          finally { showLoading(false); }
+        };
+      });
+
+      list.querySelectorAll('.cancel-btn').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('إلغاء طلب المراجعة وإرجاع المشروع للمسودات؟')) return;
+          showLoading(true);
+          try {
+            await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'draft', updatedAt: serverTimestamp() });
+            showToast('تم إلغاء الطلب');
+            await loadMine();
+          } catch (e) { showToast(e.message, 'error'); }
+          finally { showLoading(false); }
+        };
+      });
+
+      list.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.onclick = () => openEdit(btn.dataset.id);
+      });
+    }
+
+    async function openEdit(id) {
+      const p = allMyProjects.find(x => x.id === id);
+      if (!p) return;
+      document.getElementById('editProjId').value = id;
+      document.getElementById('editTitle').value = p.title || '';
+      document.getElementById('editDesc').value = p.description || '';
+      document.getElementById('editThumb').value = p.thumbnail || '';
+      document.getElementById('editFiles').value = p.filesLink || '';
+      document.getElementById('editPrice').value = p.price || 0;
+      document.getElementById('editPayMethod').value = p.paymentMethod || '';
+      document.getElementById('editPayNumber').value = p.paymentNumber || '';
+      document.getElementById('editPayName').value = p.paymentName || '';
+      toggleEditPay();
+      new bootstrap.Modal(document.getElementById('editProjectModal')).show();
+    }
+
+    function toggleEditPay() {
+      const price = parseFloat(document.getElementById('editPrice').value) || 0;
+      document.getElementById('editPaymentFields').style.display = price > 0 ? 'block' : 'none';
+    }
+    document.getElementById('editPrice')?.addEventListener('input', toggleEditPay);
+
+    async function saveEdit(andSubmit) {
+      const id = document.getElementById('editProjId').value;
+      const price = parseFloat(document.getElementById('editPrice').value) || 0;
+      const thumb = document.getElementById('editThumb').value.trim();
+      const payload = {
+        title: document.getElementById('editTitle').value.trim(),
+        description: document.getElementById('editDesc').value.trim(),
+        thumbnail: thumb,
+        thumbnailDirect: getDriveImageUrl(thumb),
+        filesLink: document.getElementById('editFiles').value.trim(),
+        price,
+        isFree: price === 0,
+        paymentMethod: price > 0 ? document.getElementById('editPayMethod').value : '',
+        paymentNumber: price > 0 ? document.getElementById('editPayNumber').value.trim() : '',
+        paymentName: price > 0 ? document.getElementById('editPayName').value.trim() : '',
+        updatedAt: serverTimestamp()
+      };
+      if (andSubmit) {
+        if (!confirm('حفظ وإرسال للمراجعة؟ لن تتمكن من التعديل بعد ذلك.')) return;
+        payload.status = 'pending_review';
+        payload.submittedAt = serverTimestamp();
+      }
+      showLoading(true);
+      try {
+        await updateDoc(doc(db, 'projects', id), payload);
+        showToast(andSubmit ? 'تم الحفظ والإرسال للمراجعة' : 'تم حفظ التعديلات');
+        bootstrap.Modal.getInstance(document.getElementById('editProjectModal'))?.hide();
+        await loadMine();
+      } catch (e) { showToast(e.message, 'error'); }
+      finally { showLoading(false); }
+    }
+
+    document.getElementById('editProjectForm')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveEdit(false);
+    });
+    document.getElementById('editAndSubmitBtn')?.addEventListener('click', () => saveEdit(true));
+  </script>
+</body>
+</html>
