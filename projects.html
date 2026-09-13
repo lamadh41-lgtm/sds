@@ -65,14 +65,18 @@
               <textarea class="form-control" id="projDesc" rows="4" required></textarea>
             </div>
             <div class="mb-3">
-              <label class="form-label">صور المشروع * (يمكنك اختيار أكثر من صورة)</label>
-              <input type="file" class="form-control" id="projImagesFiles" accept="image/*" multiple required>
-              <small class="text-muted">أول صورة = المصغرة، والباقي صور إضافية (حتى 12 صورة). تُحفظ في مجلد الصور.</small>
-              <div id="thumbPreview" class="mt-2 d-flex flex-wrap gap-1"></div>
+              <label class="form-label">الصورة المصغرة * (صورة واحدة فقط)</label>
+              <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
+              <small class="text-muted">صورة واحدة — تظهر كغلاف للمنتج</small>
+              <div id="thumbPreview" class="mt-2"></div>
             </div>
-            <!-- توافق مع الكود -->
-            <input type="file" class="d-none" id="projThumbFile" accept="image/*">
-            <input type="file" class="d-none" id="projExtraImages" accept="image/*" multiple>
+            <div class="mb-3">
+              <label class="form-label">صور إضافية (اختياري — أكثر من صورة)</label>
+              <input type="file" class="form-control" id="projExtraImages" accept="image/*" multiple>
+              <small class="text-muted">يمكنك اختيار عدة صور مرة واحدة (حتى 12)</small>
+              <div id="extraPreview" class="mt-2 d-flex flex-wrap gap-1"></div>
+            </div>
+            <input type="hidden" id="projImagesFiles" value="">
             <div class="mb-3">
               <label class="form-label">ملف المشروع * (ملف واحد فقط)</label>
               <input type="file" class="form-control" id="projFilesFile" accept=".zip,.rar,.7z,.tar,.gz,.tgz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/octet-stream,*/*" required>
@@ -320,20 +324,25 @@
     document.getElementById('projFilesFile')?.addEventListener('change', (e) => {
       const f = e.target.files?.[0];
       if (!f) return;
-      // منع أي محاولة مجلد (بعض المتصفحات)
-      if (f.name === '.' || f.size === 0 && f.type === '') {
+      if (f.name === '.' || (f.size === 0 && f.type === '')) {
         showToast?.('غير مسموح برفع مجلد — ارفع ملف واحد', 'error');
         e.target.value = '';
       }
     });
-    document.getElementById('projImagesFiles')?.addEventListener('change' , (e) => {
-      const files = Array.from(e.target.files || []);
+    document.getElementById('projThumbFile')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
       const box = document.getElementById('thumbPreview');
       if (!box) return;
-      box.innerHTML = files.slice(0, 12).map(f => {
-        const url = URL.createObjectURL(f);
-        return `<img src="${url}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">`;
-      }).join('');
+      if (!f) { box.innerHTML = ''; return; }
+      box.innerHTML = `<img src="${URL.createObjectURL(f)}" style="height:80px;width:110px;object-fit:cover;border-radius:8px;border:2px solid #d4af37;">`;
+    });
+    document.getElementById('projExtraImages')?.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files || []).slice(0, 12);
+      const box = document.getElementById('extraPreview');
+      if (!box) return;
+      box.innerHTML = files.map(f =>
+        `<img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">`
+      ).join('');
     });
   </script>
 </body>

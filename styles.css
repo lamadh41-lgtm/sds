@@ -832,3 +832,37 @@ body {
   padding: 0.65rem 0.85rem;
   margin-bottom: 0.5rem;
 }
+
+/* Professional blur loading overlay */
+.spinner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.spinner-overlay.d-none { display: none !important; }
+.upload-loader-card {
+  background: rgba(30, 24, 18, 0.92);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 16px;
+  padding: 2rem 2.25rem;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+  color: #f5f0e8;
+  min-width: 280px;
+}
+.upload-loader-msg {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #f5f0e8;
+}
+.upload-loader-pct {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #d4af37;
+}

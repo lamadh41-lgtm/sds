@@ -87,7 +87,7 @@
     // دوال مساعدة محلية عشان منعتمدش على app.js
     function showToast(message, type = 'success') {
       const container = document.querySelector('.toast-container');
-      if (!container) { alert(message); return; }
+      if (!container) { console.log(message); return; }
       const id = 'toast-' + Date.now();
       const bg = type === 'success' ? 'bg-success' : 'bg-danger';
       container.insertAdjacentHTML('beforeend', `
@@ -100,9 +100,45 @@
       const toastEl = document.getElementById(id);
       new bootstrap.Toast(toastEl, { delay: 4000 }).show();
     }
-    function showLoading(show = true) {
-      const el = document.getElementById('loadingOverlay');
-      if (el) el.classList.toggle('d-none', !show);
+    function showLoading(show = true, message = 'جاري التحميل...', percent = null) {
+      // استخدم النسخة الاحترافية من app.js إن وُجدت
+      if (typeof appLoading === 'function') {
+        try { appLoading(show, message, percent); return; } catch(e) {}
+      }
+      let el = document.getElementById('loadingOverlay');
+      if (!el && show) {
+        el = document.createElement('div');
+        el.id = 'loadingOverlay';
+        el.className = 'spinner-overlay';
+        el.innerHTML = `<div class="upload-loader-card">
+          <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem;"></div>
+          <div class="upload-loader-msg" id="loadingOverlayMsg"></div>
+          <div class="upload-loader-bar mt-3 d-none" id="loadingOverlayBarWrap">
+            <div class="progress" style="height:10px;width:240px;background:rgba(255,255,255,0.15);">
+              <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="loadingOverlayBar" style="width:0%"></div>
+            </div>
+            <div class="upload-loader-pct mt-2" id="loadingOverlayPct">0%</div>
+          </div>
+        </div>`;
+        document.body.appendChild(el);
+      }
+      if (!el) return;
+      if (show) {
+        el.classList.remove('d-none');
+        const msgEl = document.getElementById('loadingOverlayMsg');
+        if (msgEl) msgEl.textContent = message || 'جاري التحميل...';
+        const barWrap = document.getElementById('loadingOverlayBarWrap');
+        const bar = document.getElementById('loadingOverlayBar');
+        const pctEl = document.getElementById('loadingOverlayPct');
+        if (percent !== null && percent !== undefined && barWrap && bar && pctEl) {
+          barWrap.classList.remove('d-none');
+          const pct = Math.max(0, Math.min(100, Math.round(percent)));
+          bar.style.width = pct + '%';
+          pctEl.textContent = pct + '%';
+        } else if (barWrap) barWrap.classList.add('d-none');
+      } else {
+        el.classList.add('d-none');
+      }
     }
 
     const urlParams = new URLSearchParams(location.search);
@@ -446,7 +482,7 @@
         return;
       }
       const price = parseFloat(projectData.price) || 0;
-      if (!confirm(`تأكيد شراء "${projectData.title}" مقابل ${price} ج.م من رصيدك؟`)) return;
+      if (!(await siteConfirm(`تأكيد شراء "${projectData.title}" مقابل ${price} ج.م من رصيدك؟`, 'تأكيد الشراء'))) return;
       showLoading(true);
       try {
         const uRef = doc(db, 'users', currentUser.uid);

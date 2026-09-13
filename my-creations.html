@@ -234,7 +234,7 @@
 
       list.querySelectorAll('.del-btn').forEach(btn => {
         btn.onclick = async () => {
-          if (!confirm('هل أنت متأكد من حذف هذا المشروع؟')) return;
+          if (!(await siteConfirm('هل أنت متأكد من حذف هذا المشروع؟', 'حذف مشروع'))) return;
           showLoading(true);
           try {
             await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'deleted', deletedAt: serverTimestamp() });
@@ -247,7 +247,7 @@
 
       list.querySelectorAll('.submit-btn').forEach(btn => {
         btn.onclick = async () => {
-          if (!confirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\\nلن تتمكن من التعديل بعد الإرسال.')) return;
+          if (!(await siteConfirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\nلن تتمكن من التعديل بعد الإرسال.', 'إرسال للمراجعة'))) return;
           showLoading(true);
           try {
             await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'pending_review', submittedAt: serverTimestamp() });
@@ -260,7 +260,7 @@
 
       list.querySelectorAll('.cancel-btn').forEach(btn => {
         btn.onclick = async () => {
-          if (!confirm('إلغاء طلب المراجعة وإرجاع المشروع للمسودات؟')) return;
+          if (!(await siteConfirm('إلغاء طلب المراجعة وإرجاع المشروع للمسودات؟', 'إلغاء المراجعة'))) return;
           showLoading(true);
           try {
             await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'draft', updatedAt: serverTimestamp() });
@@ -316,7 +316,7 @@
         updatedAt: serverTimestamp()
       };
       if (andSubmit) {
-        if (!confirm('حفظ وإرسال للمراجعة؟ لن تتمكن من التعديل بعد ذلك.')) return;
+        if (!(await siteConfirm('حفظ وإرسال للمراجعة؟ لن تتمكن من التعديل بعد ذلك.', 'إرسال للمراجعة'))) return;
         payload.status = 'pending_review';
         payload.submittedAt = serverTimestamp();
       }

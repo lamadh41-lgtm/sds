@@ -30,17 +30,137 @@ function showToast(message, type = 'success') {
   toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
 }
 
-function showLoading(show = true) {
+function showLoading(show = true, message = 'جاري التحميل...', percent = null) {
   let el = document.getElementById('loadingOverlay');
+  const loaderHTML = `
+      <div class="upload-loader-card">
+        <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem;" role="status"></div>
+        <div class="upload-loader-msg" id="loadingOverlayMsg"></div>
+        <div class="upload-loader-bar mt-3 d-none" id="loadingOverlayBarWrap">
+          <div class="progress" style="height:10px;width:240px;background:rgba(255,255,255,0.15);">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" id="loadingOverlayBar" style="width:0%"></div>
+          </div>
+          <div class="upload-loader-pct mt-2" id="loadingOverlayPct">0%</div>
+        </div>
+      </div>`;
   if (!el && show) {
     el = document.createElement('div');
     el.id = 'loadingOverlay';
     el.className = 'spinner-overlay';
-    el.innerHTML = '<div class="spinner-border text-primary" style="width:3rem;height:3rem;"></div>';
+    el.innerHTML = loaderHTML;
     document.body.appendChild(el);
+  } else if (el && show && !el.querySelector('.upload-loader-card')) {
+    el.className = 'spinner-overlay';
+    el.innerHTML = loaderHTML;
   }
-  if (el) el.classList.toggle('d-none', !show);
+  if (!el) return;
+  if (show) {
+    el.classList.remove('d-none');
+    const msgEl = document.getElementById('loadingOverlayMsg');
+    if (msgEl) msgEl.textContent = message || 'جاري التحميل...';
+    const barWrap = document.getElementById('loadingOverlayBarWrap');
+    const bar = document.getElementById('loadingOverlayBar');
+    const pctEl = document.getElementById('loadingOverlayPct');
+    if (percent !== null && percent !== undefined && barWrap && bar && pctEl) {
+      barWrap.classList.remove('d-none');
+      const pct = Math.max(0, Math.min(100, Math.round(percent)));
+      bar.style.width = pct + '%';
+      pctEl.textContent = pct + '%';
+    } else if (barWrap) {
+      barWrap.classList.add('d-none');
+    }
+  } else {
+    el.classList.add('d-none');
+  }
 }
+
+function siteConfirm(message, title = 'تأكيد') {
+  return new Promise((resolve) => {
+    let modal = document.getElementById('siteConfirmModal');
+    if (!modal) {
+      document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="siteConfirmModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="siteConfirmTitle">تأكيد</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body"><p id="siteConfirmMsg" class="mb-0" style="white-space:pre-wrap;"></p></div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">إلغاء</button>
+                <button type="button" class="btn btn-primary-custom text-white" id="siteConfirmYes">تأكيد</button>
+              </div>
+            </div>
+          </div>
+        </div>`);
+      modal = document.getElementById('siteConfirmModal');
+    }
+    document.getElementById('siteConfirmTitle').textContent = title;
+    document.getElementById('siteConfirmMsg').textContent = message;
+    const modalInst = new bootstrap.Modal(modal);
+    const yesBtn = document.getElementById('siteConfirmYes');
+    const cleanup = () => {
+      yesBtn.onclick = null;
+      modal.removeEventListener('hidden.bs.modal', onHide);
+    };
+    const onHide = () => { cleanup(); resolve(false); };
+    yesBtn.onclick = () => { cleanup(); modalInst.hide(); resolve(true); };
+    modal.addEventListener('hidden.bs.modal', onHide);
+    modalInst.show();
+  });
+}
+
+function sitePrompt(message, title = 'إدخال', defaultValue = '') {
+  return new Promise((resolve) => {
+    let modal = document.getElementById('sitePromptModal');
+    if (!modal) {
+      document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="sitePromptModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="sitePromptTitle">إدخال</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                <p id="sitePromptMsg" class="mb-2"></p>
+                <input type="text" class="form-control" id="sitePromptInput">
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">إلغاء</button>
+                <button type="button" class="btn btn-primary-custom text-white" id="sitePromptYes">تأكيد</button>
+              </div>
+            </div>
+          </div>
+        </div>`);
+      modal = document.getElementById('sitePromptModal');
+    }
+    document.getElementById('sitePromptTitle').textContent = title;
+    document.getElementById('sitePromptMsg').textContent = message;
+    const input = document.getElementById('sitePromptInput');
+    input.value = defaultValue || '';
+    const modalInst = new bootstrap.Modal(modal);
+    const yesBtn = document.getElementById('sitePromptYes');
+    const cleanup = () => {
+      yesBtn.onclick = null;
+      modal.removeEventListener('hidden.bs.modal', onHide);
+    };
+    const onHide = () => { cleanup(); resolve(null); };
+    yesBtn.onclick = () => {
+      const val = input.value;
+      cleanup();
+      modalInst.hide();
+      resolve(val);
+    };
+    modal.addEventListener('hidden.bs.modal', onHide);
+    modalInst.show();
+    setTimeout(() => input.focus(), 300);
+  });
+}
+window.siteConfirm = siteConfirm;
+window.sitePrompt = sitePrompt;
+
 
 function linkifyText(text) {
   if (!text) return '';
@@ -367,11 +487,10 @@ function collectProjectFormData() {
     return null;
   }
   if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
-  const allImgsCheck = Array.from(document.getElementById('projImagesFiles')?.files || []);
-  const thumbFile = allImgsCheck[0] || document.getElementById('projThumbFile')?.files?.[0];
+  const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
   const filesFile = document.getElementById('projFilesFile')?.files?.[0];
   if (!thumbFile || !filesFile) {
-    showToast('ارفع صورة واحدة على الأقل وملف المشروع', 'error');
+    showToast('ارفع الصورة المصغرة وملف المشروع', 'error');
     return null;
   }
   if (pricing === 'paid' && price <= 0) {
@@ -403,29 +522,22 @@ async function saveProjectWithStatus(status, successMsg) {
   const data = collectProjectFormData();
   if (!data) return;
   if (status === 'pending_review') {
-    if (!confirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\nلن تتمكن من التعديل بعد الإرسال، ويمكنك الحذف فقط أو إلغاء طلب المراجعة.')) return;
+    const ok = await siteConfirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\nلن تتمكن من التعديل بعد الإرسال، ويمكنك الحذف فقط أو إلغاء طلب المراجعة.', 'إرسال للمراجعة');
+    if (!ok) return;
   }
   isPublishing = true;
-  showLoading(true);
+  showLoading(true, 'جاري رفع ملف المشروع...', 0);
   try {
-    const allImgs = Array.from(document.getElementById('projImagesFiles')?.files || []);
-    const thumbFile0 = allImgs[0] || document.getElementById('projThumbFile')?.files?.[0];
+    const thumbFile0 = document.getElementById('projThumbFile')?.files?.[0];
     const filesFile = document.getElementById('projFilesFile')?.files?.[0];
-    const extraImgs = allImgs.slice(1, 12);
-    const progressWrap = document.getElementById('uploadProgressWrap');
-    const progressBar = document.getElementById('uploadProgressBar');
-    const progressText = document.getElementById('uploadProgressText');
-    const setProg = (pct, txt) => {
-      if (progressWrap) progressWrap.classList.remove('d-none');
-      if (progressBar) progressBar.style.width = pct + '%';
-      if (progressText) progressText.textContent = txt || '';
-    };
+    const extraImgs = Array.from(document.getElementById('projExtraImages')?.files || []).slice(0, 12);
+    const setProg = (pct, txt) => showLoading(true, txt || 'جاري رفع ملف المشروع...', pct);
     try {
       if (!thumbFile0 || !filesFile) throw new Error('الصورة المصغرة وملف المشروع مطلوبان');
       const projectName = data.title || 'project';
-      setProg(5, 'ضغط الصورة المصغرة...');
+      setProg(5, 'جاري تجهيز الصورة...');
       const thumbFile = await compressImageFile(thumbFile0, 800, 0.6);
-      setProg(15, 'رفع الصورة المصغرة...');
+      setProg(15, 'جاري رفع الصورة المصغرة...');
       const upThumb = await uploadToDriveScript(thumbFile, (p) => setProg(15 + p * 0.25, 'رفع المصغرة...'), { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
       data.thumbnail = upThumb.url;
       data.thumbnailDirect = upThumb.thumbUrl || upThumb.url;
@@ -434,17 +546,17 @@ async function saveProjectWithStatus(status, successMsg) {
 
       // صور إضافية بالتوازي قدر الإمكان
       if (extraImgs.length) {
-        setProg(40, 'رفع الصور الإضافية بالتوازي...');
+        setProg(45, 'جاري رفع الصور الإضافية...');
         const compressed = await Promise.all(extraImgs.map(f => compressImageFile(f, 900, 0.62)));
         const userMeta = { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' };
         const ups = await Promise.all(compressed.map(f => uploadToDriveScript(f, null, userMeta)));
         data.images = data.images.concat(ups.map(u => u.url));
       }
 
-      setProg(70, 'رفع ملفات المشروع...');
+      setProg(70, 'جاري رفع ملف المشروع...');
       const upFiles = await uploadToDriveScript(filesFile, (p) => setProg(70 + p * 0.25, 'رفع الملفات...'), { projectName, folderKind: 'files', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
       data.filesLink = upFiles.url;
-      setProg(100, 'تم الرفع');
+      setProg(95, 'جاري حفظ البيانات...');
     } catch (upErr) {
       showToast('فشل الرفع: ' + (upErr.message || upErr), 'error');
       isPublishing = false;

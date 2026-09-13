@@ -86,7 +86,7 @@
     document.getElementById('confirmTopupBtn').onclick = async () => {
       const file = document.getElementById('topupTransferFile')?.files?.[0];
       if (!file) { showToast('ارفع صورة التحويل من جهازك', 'error'); return; }
-      if (!confirm('تأكيد إرسال الطلب؟ لن يمكن الرجوع أو استرجاع المبلغ.')) return;
+      if (!(await siteConfirm('تأكيد إرسال الطلب؟ لن يمكن الرجوع أو استرجاع المبلغ.', 'شحن الرصيد'))) return;
       showLoading(true);
       try {
         const u = await getDoc(doc(db, 'users', currentUser.uid));

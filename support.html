@@ -59,7 +59,19 @@
   <script type="module">
     import { auth, db, onAuthStateChanged, collection, addDoc, query, where, onSnapshot, serverTimestamp } from './firebase.js';
 
-    function showToast(msg) { alert(msg); }
+    function showToast(msg, type='success') {
+      let container = document.querySelector('.toast-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        container.style.zIndex = '9999';
+        document.body.appendChild(container);
+      }
+      const id = 'toast-' + Date.now();
+      const bg = type === 'error' ? 'bg-danger' : 'bg-success';
+      container.insertAdjacentHTML('beforeend', `<div id="${id}" class="toast align-items-center text-white ${bg} border-0"><div class="d-flex"><div class="toast-body">${msg}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`);
+      try { new bootstrap.Toast(document.getElementById(id)).show(); } catch(e){}
+    }
 
     onAuthStateChanged(auth, (user) => {
       if (!user) return;
