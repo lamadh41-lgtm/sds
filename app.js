@@ -263,7 +263,7 @@ onAuthStateChanged(auth, async (user) => {
           <li><a class="dropdown-item" href="purchases.html"><i class="fas fa-shopping-bag me-2"></i>مشترياتي</a></li>
           <li><a class="dropdown-item" href="my-creations.html"><i class="fas fa-lightbulb me-2"></i>إبداعاتي</a></li>
           <li><a class="dropdown-item" href="earnings.html"><i class="fas fa-coins me-2"></i>أرباحك</a></li>
-          <li><a class="dropdown-item" href="balance.html"><i class="fas fa-wallet me-2"></i>رصيدي <span id="navBalanceBadge" class="text-success small"></span></a></li>
+          <li><a class="dropdown-item" href="balance.html"><i class="fas fa-wallet me-2"></i>رصيدي <strong id="navBalanceBadge" class="text-success">...</strong></a></li>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fas fa-sign-out-alt me-2"></i>تسجيل الخروج</a></li>
         </ul>
@@ -286,6 +286,10 @@ onAuthStateChanged(auth, async (user) => {
     loadUserNotifications(user.uid);
     document.getElementById('notifBtn')?.addEventListener('show.bs.dropdown', () => markNotificationsRead(user.uid));
     initSupportWidget(user);
+    // إظهار قيمة الرصيد جنب القائمة
+    const bal = parseFloat(currentUserData?.balance) || 0;
+    const balEl = document.getElementById('navBalanceBadge');
+    if (balEl) balEl.textContent = `(${bal.toFixed(2)} ج.م)`;
   } else {
     currentUserData = null;
     ensureAuthModals();
@@ -657,27 +661,6 @@ async function loadNewsBar() {
   } catch (e) { console.error(e); }
 }
 loadNewsBar();
-
-// ===== إظهار/إخفاء الـ ID عالمياً =====
-(function initIdVisibility() {
-  const show = localStorage.getItem('showIds') === '1';
-  document.body.classList.toggle('hide-ids', !show);
-  const bar = document.createElement('div');
-  bar.className = 'id-toggle-bar';
-  bar.innerHTML = `<span class="small me-2">ID</span>
-    <button type="button" class="btn btn-sm ${show?'btn-success':'btn-outline-secondary'} py-0 px-2" id="idVisibilityToggle">${show?'مفعّل':'معطّل'}</button>`;
-  document.body.appendChild(bar);
-  document.getElementById('idVisibilityToggle')?.addEventListener('click', () => {
-    const next = localStorage.getItem('showIds') !== '1';
-    localStorage.setItem('showIds', next ? '1' : '0');
-    document.body.classList.toggle('hide-ids', !next);
-    const b = document.getElementById('idVisibilityToggle');
-    if (b) {
-      b.textContent = next ? 'مفعّل' : 'معطّل';
-      b.className = `btn btn-sm ${next?'btn-success':'btn-outline-secondary'} py-0 px-2`;
-    }
-  });
-})();
 
 // Export for other pages
 window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData, loadUserNotifications };

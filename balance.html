@@ -69,7 +69,7 @@
         const st = r.status === 'approved' ? 'نجاح' : r.status === 'rejected' ? 'مرفوض' : 'قيد المراجعة';
         const cls = r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'danger' : 'warning';
         const dt = r.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
-        return `<div class="border-bottom py-2 d-flex justify-content-between"><span>${r.amount} ج.م — ${dt}</span><span class="badge bg-${cls}">${st}</span></div>`;
+        return `<div class="balance-hist-item d-flex justify-content-between align-items-center"><span>${r.amount} ج.م — ${dt}</span><span class="badge bg-${cls}">${st}</span></div>`;
       }).join('');
     }
 

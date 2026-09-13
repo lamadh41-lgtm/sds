@@ -254,11 +254,19 @@
         list.innerHTML = '<div class="text-muted text-center">لا توجد مشتريات في هذه الفترة</div>';
         return;
       }
-      list.innerHTML = '<h6 class="mb-2">قائمة المشترين</h6>' + prods.map(p => {
+      list.innerHTML = '<h6 class="mb-2">سجل عمليات الشراء</h6>' + prods.map(p => {
         const dt = p._date ? p._date.toLocaleDateString('ar-EG') : '-';
-        return `<div class="border-bottom py-2 d-flex justify-content-between">
-          <span>${p.buyerName || p.buyerEmail || 'مشتري'}</span>
-          <span>${(parseFloat(p.price)||0).toFixed(2)} ج.م — ${dt}</span>
+        const amt = (parseFloat(p.price || p.amount)||0).toFixed(2);
+        const payout = p.payoutSent
+          ? '<span class="badge bg-success">تم إرسال أرباحك لحسابك المالي</span>'
+          : '<span class="badge bg-warning text-dark">لم يتم إرسال الأرباح لحسابك البنكي بعد</span>';
+        return `<div class="border rounded p-2 mb-2">
+          <div class="d-flex justify-content-between flex-wrap gap-1">
+            <span>${p.buyerName || p.buyerEmail || 'مشتري'}</span>
+            <span>${amt} ج.م — ${dt}</span>
+          </div>
+          <div class="mt-1">${payout}</div>
+          <div class="small text-muted">ID العملية: ${p.id || '-'}</div>
         </div>`;
       }).join('');
     }
