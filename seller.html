@@ -44,7 +44,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, collection, getDocs, doc, getDoc } from './firebase.js';
+    import { auth, db, onAuthStateChanged, collection, getDocs, query, where, doc, getDoc } from './firebase.js';
     import { showToast, showLoading, getInitials } from './app.js';
 
     const params = new URLSearchParams(location.search);
@@ -86,10 +86,10 @@
             </div>
           </div>`;
 
-        const snap = await getDocs(collection(db, 'projects'));
+        const snap = await getDocs(query(collection(db, 'projects'), where('sellerId', '==', sellerId)));
         const prods = snap.docs.filter(d => {
           const p = d.data();
-          return p.sellerId === sellerId && (!p.status || p.status === 'active');
+          return !p.status || p.status === 'active';
         }).sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0));
 
         const grid = document.getElementById('sellerProducts');

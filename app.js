@@ -104,12 +104,18 @@ function ensureAuthModals() {
                   </div>
                   <div class="col-md-6 mb-3">
                     <label class="form-label">كلمة المرور *</label>
-                    <input type="password" class="form-control" id="regPassword" required minlength="6">
+                    <div class="input-group">
+                      <input type="password" class="form-control" id="regPassword" required minlength="6">
+                      <button class="btn btn-outline-secondary" type="button" id="toggleRegPass" title="إظهار/إخفاء"><i class="fas fa-eye"></i></button>
+                    </div>
                   </div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label">تأكيد كلمة المرور *</label>
-                  <input type="password" class="form-control" id="regPassword2" required>
+                  <div class="input-group">
+                    <input type="password" class="form-control" id="regPassword2" required>
+                    <button class="btn btn-outline-secondary" type="button" id="toggleRegPass2" title="إظهار/إخفاء"><i class="fas fa-eye"></i></button>
+                  </div>
                 </div>
                 <div class="form-check mb-2">
                   <input class="form-check-input" type="checkbox" id="agreePrivacy" required>
@@ -178,7 +184,7 @@ function bindAuthForms() {
       await updateProfile(cred.user, { displayName: name });
       await setDoc(doc(db, 'users', cred.user.uid), {
         name, email, phone, createdAt: serverTimestamp(),
-        banned: false, deleted: false, role: 'user', bio: ''
+        banned: false, deleted: false, role: 'user', bio: '', balance: 0
       });
       showToast('تم إنشاء الحساب بنجاح! مرحباً بك');
       bootstrap.Modal.getInstance(document.getElementById('registerModal'))?.hide();
@@ -188,6 +194,19 @@ function bindAuthForms() {
       showLoading(false);
     }
   });
+
+  const bindPassToggle = (btnId, inputId) => {
+    document.getElementById(btnId)?.addEventListener('click', () => {
+      const inp = document.getElementById(inputId);
+      if (!inp) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      const icon = document.querySelector(`#${btnId} i`);
+      if (icon) icon.className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+    });
+  };
+  bindPassToggle('toggleRegPass', 'regPassword');
+  bindPassToggle('toggleRegPass2', 'regPassword2');
 }
 
 // Call early
@@ -243,7 +262,8 @@ onAuthStateChanged(auth, async (user) => {
           <li><a class="dropdown-item" href="account.html"><i class="fas fa-user me-2"></i>حسابي</a></li>
           <li><a class="dropdown-item" href="purchases.html"><i class="fas fa-shopping-bag me-2"></i>مشترياتي</a></li>
           <li><a class="dropdown-item" href="my-creations.html"><i class="fas fa-lightbulb me-2"></i>إبداعاتي</a></li>
-          <li><a class="dropdown-item" href="earnings.html"><i class="fas fa-wallet me-2"></i>أرباحك</a></li>
+          <li><a class="dropdown-item" href="earnings.html"><i class="fas fa-coins me-2"></i>أرباحك</a></li>
+          <li><a class="dropdown-item" href="balance.html"><i class="fas fa-wallet me-2"></i>رصيدي <span id="navBalanceBadge" class="text-success small"></span></a></li>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item text-danger" href="#" id="logoutBtn"><i class="fas fa-sign-out-alt me-2"></i>تسجيل الخروج</a></li>
         </ul>
@@ -306,7 +326,9 @@ function collectProjectFormData() {
   }
   const title = document.getElementById('projTitle')?.value.trim() || '';
   const desc = document.getElementById('projDesc')?.value.trim() || '';
-  const price = parseFloat(document.getElementById('projPrice')?.value) || 0;
+  const pricing = document.querySelector('input[name="projPricing"]:checked')?.value || 'free';
+  let price = normalizePriceInput(document.getElementById('projPrice'));
+  if (pricing === 'free') price = 0;
   let payMethod = document.getElementById('projPayMethod')?.value || '';
   let payNumber = document.getElementById('projPayNumber')?.value.trim() || '';
   let payName = document.getElementById('projPayName')?.value.trim() || '';
@@ -317,12 +339,17 @@ function collectProjectFormData() {
     showToast('أدخل اسم المشروع والوصف', 'error');
     return null;
   }
+  if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
   if (!thumbLink || !filesLink) {
     showToast('يجب إدخال رابط الصورة ورابط الملفات من جوجل درايف', 'error');
     return null;
   }
+  if (pricing === 'paid' && price <= 0) {
+    showToast('أدخل سعر أكبر من صفر للمنتج المدفوع', 'error');
+    return null;
+  }
   if (price > 0 && (!payMethod || !payNumber || !payName)) {
-    showToast('أدخل بيانات المحفظة لأن السعر أكبر من صفر', 'error');
+    showToast('أدخل بيانات المحفظة للمنتج المدفوع', 'error');
     return null;
   }
   if (price <= 0) {
@@ -391,9 +418,9 @@ async function loadUserNotifications(uid) {
   const badge = document.getElementById('notifBadge');
   if (!listEl) return;
   try {
-    const snap = await getDocs(collection(db, 'notifications'));
+    // قراءة إشعارات المستخدم فقط (مش كل الإشعارات)
+    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
     const notifs = snap.docs
-      .filter(d => d.data().userId === uid)
       .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
       .slice(0, 30);
 
@@ -454,12 +481,13 @@ async function loadUserNotifications(uid) {
 
 async function markNotificationsRead(uid) {
   try {
-    const snap = await getDocs(collection(db, 'notifications'));
-    const unread = snap.docs.filter(d => d.data().userId === uid && !d.data().read);
-    await Promise.all(unread.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
+    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
+    const unread = snap.docs.filter(d => !d.data().read);
+    if (unread.length) {
+      await Promise.all(unread.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
+    }
     const badge = document.getElementById('notifBadge');
     if (badge) badge.classList.add('d-none');
-    // refresh list styles
     setTimeout(() => loadUserNotifications(uid), 400);
   } catch (e) { console.error(e); }
 }
@@ -583,7 +611,7 @@ async function markSupportRead(uid) {
   } catch (e) {}
 }
 
-// ===== News Bar =====
+// ===== News Bar (dismiss محلي — يظهر تاني لو الخبر اتغيّر) =====
 async function loadNewsBar() {
   try {
     const snap = await getDoc(doc(db, 'settings', 'news'));
@@ -591,34 +619,112 @@ async function loadNewsBar() {
     const data = snap.data();
     if (!data.active || !data.text) {
       document.getElementById('newsBar')?.remove();
+      document.getElementById('newsShowBtn')?.remove();
       return;
     }
-    let bar = document.getElementById('newsBar');
-    if (!bar) {
-      bar = document.createElement('div');
-      bar.id = 'newsBar';
-      bar.className = 'news-bar';
-      document.body.prepend(bar);
+    const newsKey = String(data.text || '').trim();
+    const dismissed = localStorage.getItem('newsDismissedText') === newsKey;
+
+    document.getElementById('newsBar')?.remove();
+    document.getElementById('newsShowBtn')?.remove();
+
+    if (dismissed) {
+      const btn = document.createElement('button');
+      btn.id = 'newsShowBtn';
+      btn.type = 'button';
+      btn.className = 'news-show-btn';
+      btn.innerHTML = '<i class="fas fa-bullhorn me-1"></i>إظهار الخبر';
+      btn.onclick = () => {
+        localStorage.removeItem('newsDismissedText');
+        loadNewsBar();
+      };
+      document.body.appendChild(btn);
+      return;
     }
-    bar.innerHTML = `<div class="news-bar-inner"><i class="fas fa-bullhorn me-2"></i>${data.text}</div>`;
+
+    const bar = document.createElement('div');
+    bar.id = 'newsBar';
+    bar.className = 'news-bar';
+    bar.innerHTML = `<div class="news-bar-inner d-flex align-items-center justify-content-center gap-2 flex-wrap">
+      <span><i class="fas fa-bullhorn me-2"></i>${data.text}</span>
+      <button type="button" class="btn btn-sm btn-dark py-0 px-2" id="newsDismissBtn" title="إخفاء">×</button>
+    </div>`;
+    document.body.prepend(bar);
+    document.getElementById('newsDismissBtn')?.addEventListener('click', () => {
+      localStorage.setItem('newsDismissedText', newsKey);
+      loadNewsBar();
+    });
   } catch (e) { console.error(e); }
 }
 loadNewsBar();
 
+// ===== إظهار/إخفاء الـ ID عالمياً =====
+(function initIdVisibility() {
+  const show = localStorage.getItem('showIds') === '1';
+  document.body.classList.toggle('hide-ids', !show);
+  const bar = document.createElement('div');
+  bar.className = 'id-toggle-bar';
+  bar.innerHTML = `<span class="small me-2">ID</span>
+    <button type="button" class="btn btn-sm ${show?'btn-success':'btn-outline-secondary'} py-0 px-2" id="idVisibilityToggle">${show?'مفعّل':'معطّل'}</button>`;
+  document.body.appendChild(bar);
+  document.getElementById('idVisibilityToggle')?.addEventListener('click', () => {
+    const next = localStorage.getItem('showIds') !== '1';
+    localStorage.setItem('showIds', next ? '1' : '0');
+    document.body.classList.toggle('hide-ids', !next);
+    const b = document.getElementById('idVisibilityToggle');
+    if (b) {
+      b.textContent = next ? 'مفعّل' : 'معطّل';
+      b.className = `btn btn-sm ${next?'btn-success':'btn-outline-secondary'} py-0 px-2`;
+    }
+  });
+})();
+
 // Export for other pages
 window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData, loadUserNotifications };
-export { showToast, showLoading, getInitials };
+// فلتر شتائم بسيط محلي — بدون قراءات Firebase
+const BAD_WORDS = ['كس','كسم','عرص','شرموط','متناك','زب','طيز','خرا','منيوك','خول','قحبة','شرموطة','fuck','shit','bitch','asshole'];
+function containsBadWords(text) {
+  if (!text) return false;
+  const t = String(text).toLowerCase().replace(/\s+/g,'');
+  return BAD_WORDS.some(w => t.includes(w.toLowerCase()));
+}
+function moderateText(text, fieldName = 'النص') {
+  if (containsBadWords(text)) {
+    showToast(fieldName + ' يحتوي ألفاظ غير لائقة. عدّل الصياغة.', 'error');
+    return false;
+  }
+  return true;
+}
+export { showToast, showLoading, getInitials, containsBadWords, moderateText };
+window.moderateText = moderateText;
 
-// إخفاء حقول الدفع لو السعر = 0
+
+// مجاني / مدفوع + تنظيف السعر (06 → 6)
+function normalizePriceInput(el) {
+  if (!el) return 0;
+  let v = String(el.value || '').trim();
+  if (v === '') { el.value = '0'; return 0; }
+  const n = parseFloat(v);
+  if (isNaN(n) || n < 0) { el.value = '0'; return 0; }
+  el.value = String(n);
+  return n;
+}
+
 function togglePaymentFields() {
-  const price = parseFloat(document.getElementById('projPrice')?.value) || 0;
+  const pricing = document.querySelector('input[name="projPricing"]:checked')?.value;
+  const priceEl = document.getElementById('projPrice');
+  const priceWrap = document.getElementById('projPriceWrap');
   const fields = document.getElementById('paymentFields');
   const method = document.getElementById('projPayMethod');
   const number = document.getElementById('projPayNumber');
   const name = document.getElementById('projPayName');
-  const hide = price <= 0;
 
+  const isFree = pricing === 'free' || (!pricing && (parseFloat(priceEl?.value) || 0) <= 0);
+  if (isFree && priceEl) priceEl.value = '0';
+  if (priceWrap) priceWrap.style.display = isFree ? 'none' : 'block';
+  const hide = isFree;
   if (fields) fields.style.display = hide ? 'none' : 'block';
+  if (!hide && priceEl) normalizePriceInput(priceEl);
 
   // لو مفيش wrapper (صفحة المشاريع) نخفي العناصر نفسها وآباءها
   [method, number, name].forEach(el => {
@@ -642,6 +748,9 @@ function togglePaymentFields() {
   }
 }
 document.getElementById('projPrice')?.addEventListener('input', togglePaymentFields);
+document.getElementById('projPrice')?.addEventListener('blur', () => normalizePriceInput(document.getElementById('projPrice')));
+document.addEventListener('change', (e) => {
+  if (e.target?.name === 'projPricing') togglePaymentFields();
+});
 document.addEventListener('DOMContentLoaded', togglePaymentFields);
-// لو المودال اتفتح
 document.getElementById('uploadModal')?.addEventListener('shown.bs.modal', togglePaymentFields);

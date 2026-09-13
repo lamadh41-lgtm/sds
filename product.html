@@ -81,8 +81,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, serverTimestamp, updateDoc, increment } from './firebase.js';
-    import { showToast as appToast, showLoading as appLoading } from './app.js';
+    import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, updateDoc, increment } from './firebase.js';
+    import { showToast as appToast, showLoading as appLoading, moderateText } from './app.js';
 
     // دوال مساعدة محلية عشان منعتمدش على app.js
     function showToast(message, type = 'success') {
@@ -144,10 +144,11 @@
       if (!currentUser || !projectId) return;
       isOwner = projectData && projectData.sellerId === currentUser.uid;
       try {
-        const snap = await getDocs(collection(db, 'purchases'));
+        // مشتريات المستخدم الحالي فقط — مش كل المشتريات
+        const snap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', currentUser.uid)));
         snap.docs.forEach(d => {
           const x = d.data();
-          if (x.buyerId === currentUser.uid && x.projectId === projectId) {
+          if (x.projectId === projectId) {
             if (x.status === 'approved' || x.status === 'owned_free') hasPurchased = true;
             if (x.status === 'pending') hasPending = true;
           }
@@ -269,9 +270,8 @@
       const list = document.getElementById('commentsList');
       if (!list) return;
       try {
-        const snap = await getDocs(collection(db, 'comments'));
+        const snap = await getDocs(query(collection(db, 'comments'), where('projectId', '==', projectId)));
         const comments = snap.docs
-          .filter(d => d.data().projectId === projectId)
           .sort((a,b) => (b.data().createdAt?.toMillis?.()||0) - (a.data().createdAt?.toMillis?.()||0));
         if (comments.length === 0) {
           list.innerHTML = '<div class="text-muted">لا توجد تعليقات بعد</div>';
@@ -318,6 +318,7 @@
         if (!currentUser || myCommentId) return;
         const stars = parseInt(document.getElementById('commentStars').value) || 5;
         const text = document.getElementById('commentText').value.trim();
+        if (text && typeof moderateText === 'function' && !moderateText(text, 'التعليق')) return;
         showLoading(true);
         try {
           await addDoc(collection(db, 'comments'), {
@@ -411,46 +412,45 @@
       } catch(e){}
     }
 
-    function handleBuyClick() {
+    async function handleBuyClick() {
       if (!currentUser) {
         showToast('يجب تسجيل الدخول أولاً لشراء المنتج', 'error');
-        // Could open login modal, but for simplicity redirect or toast
         return;
       }
-      document.getElementById('payAmount').textContent = projectData.price;
-      document.getElementById('paymentInfo').classList.add('d-none');
-      document.getElementById('proceedBuyBtn').disabled = true;
-      document.getElementById('readInstructions').checked = false;
-      new bootstrap.Modal(document.getElementById('buyModal')).show();
-    }
-
-    document.getElementById('readInstructions')?.addEventListener('change', (e) => {
-      document.getElementById('proceedBuyBtn').disabled = !e.target.checked;
-    });
-
-    document.getElementById('proceedBuyBtn')?.addEventListener('click', () => {
-      document.getElementById('paymentInfo').classList.remove('d-none');
-      document.getElementById('proceedBuyBtn').classList.add('d-none');
-    });
-
-    document.getElementById('confirmPurchaseBtn')?.addEventListener('click', async () => {
-      const transferLink = document.getElementById('transferImageLink').value.trim();
-      if (!transferLink) {
-        showToast('يجب وضع رابط صورة التحويل من جوجل درايف', 'error');
-        return;
-      }
+      const price = parseFloat(projectData.price) || 0;
+      if (!confirm(`تأكيد شراء "${projectData.title}" مقابل ${price} ج.م من رصيدك؟`)) return;
       showLoading(true);
       try {
+        const uRef = doc(db, 'users', currentUser.uid);
+        const uSnap = await getDoc(uRef);
+        const bal = uSnap.exists() ? (parseFloat(uSnap.data().balance) || 0) : 0;
+        if (bal < price) {
+          showToast('رصيدك غير كافٍ. سيتم تحويلك لصفحة شحن الرصيد', 'error');
+          showLoading(false);
+          setTimeout(() => location.href = 'balance.html', 1200);
+          return;
+        }
         const p = projectData;
+        await updateDoc(uRef, { balance: bal - price });
         await addDoc(collection(db, 'purchases'), {
           projectId,
           projectTitle: p.title,
           buyerId: currentUser.uid,
           buyerEmail: currentUser.email,
+          buyerName: currentUser.displayName || '',
           sellerId: p.sellerId,
-          amount: p.price,
-          transferImage: transferLink,
-          status: 'pending',
+          sellerName: p.sellerName || '',
+          sellerPayMethod: p.paymentMethod || '',
+          sellerPayNumber: p.paymentNumber || '',
+          sellerPayName: p.paymentName || '',
+          paymentMethod: p.paymentMethod || '',
+          paymentNumber: p.paymentNumber || '',
+          paymentName: p.paymentName || '',
+          amount: price,
+          price: price,
+          status: 'approved',
+          payoutSent: false,
+          paidFromBalance: true,
           snapshot: {
             title: p.title,
             description: p.description,
@@ -463,18 +463,19 @@
             isFree: false
           },
           createdAt: serverTimestamp(),
-          rejectionReason: '',
-          retryAllowed: false
+          approvedAt: serverTimestamp()
         });
-
-        showToast('تم إرسال طلب الشراء. انتظر بضع دقائق حتى تتم المراجعة والتأكيد.');
-        bootstrap.Modal.getInstance(document.getElementById('buyModal')).hide();
+        try { await updateDoc(doc(db, 'projects', projectId), { sales: increment(1) }); } catch(e){}
+        showToast('تم الشراء بنجاح من رصيدك');
+        hasPurchased = true;
+        hasPending = false;
+        renderProduct();
       } catch (err) {
         showToast('حدث خطأ: ' + err.message, 'error');
       } finally {
         showLoading(false);
       }
-    });
+    }
 
     loadProduct();
   </script>

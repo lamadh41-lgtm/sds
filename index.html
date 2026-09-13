@@ -273,11 +273,21 @@
               <small class="text-muted">ارفع المجلد أو ملف ZIP على درايف وشاركه (أي شخص لديه الرابط)</small>
             </div>
             <div class="mb-3">
-              <label class="form-label">السعر (0 = مجاني)</label>
-              <div class="input-group">
-                <input type="number" class="form-control" id="projPrice" min="0" value="0" placeholder="0 = مجاني">
-                <span class="input-group-text">ج.م</span>
+              <label class="form-label">نوع المنتج *</label>
+              <div class="d-flex gap-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="projPricing" id="projPricingFreeIdx" value="free" checked>
+                  <label class="form-check-label" for="projPricingFreeIdx">مجاني</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="projPricing" id="projPricingPaidIdx" value="paid">
+                  <label class="form-check-label" for="projPricingPaidIdx">مدفوع</label>
+                </div>
               </div>
+            </div>
+            <div class="mb-3" id="projPriceWrap" style="display:none;">
+              <label class="form-label">السعر (ج.م) *</label>
+              <input type="number" class="form-control" id="projPrice" min="0" step="any" value="0" placeholder="مثال: 50">
             </div>
             <div id="paymentFields" style="display:none;">
               <div class="row">

@@ -163,17 +163,17 @@
       list.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
       try {
         const [projSnap, purchSnap] = await Promise.all([
-          getDocs(collection(db, 'projects')),
-          getDocs(collection(db, 'purchases'))
+          getDocs(query(collection(db, 'projects'), where('sellerId', '==', currentUser.uid))),
+          getDocs(query(collection(db, 'purchases'), where('sellerId', '==', currentUser.uid)))
         ]);
         myProjects = projSnap.docs
-          .filter(d => d.data().sellerId === currentUser.uid && d.data().status !== 'deleted' && !d.data().isFree && (parseFloat(d.data().price) || 0) > 0)
+          .filter(d => d.data().status !== 'deleted' && !d.data().isFree && (parseFloat(d.data().price) || 0) > 0)
           .map(d => ({ id: d.id, ...d.data() }));
 
         allPurchases = purchSnap.docs
           .filter(d => {
             const p = d.data();
-            return p.status === 'approved' && p.sellerId === currentUser.uid && (parseFloat(p.price) || 0) > 0;
+            return p.status === 'approved' && (parseFloat(p.price || p.amount) || 0) > 0;
           })
           .map(d => ({ id: d.id, ...d.data(), _date: toDate(d.data().approvedAt || d.data().createdAt) }));
 

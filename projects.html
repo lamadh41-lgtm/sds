@@ -75,8 +75,21 @@
               <small class="text-muted">ارفع المجلد أو الـ ZIP على درايف وشاركه (أي شخص لديه الرابط)</small>
             </div>
             <div class="mb-3">
-              <label class="form-label">السعر (0 = مجاني)</label>
-              <input type="number" class="form-control" id="projPrice" min="0" value="0">
+              <label class="form-label">نوع المنتج *</label>
+              <div class="d-flex gap-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="projPricing" id="projPricingFree" value="free" checked>
+                  <label class="form-check-label" for="projPricingFree">مجاني</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="projPricing" id="projPricingPaid" value="paid">
+                  <label class="form-check-label" for="projPricingPaid">مدفوع</label>
+                </div>
+              </div>
+            </div>
+            <div class="mb-3" id="projPriceWrap" style="display:none;">
+              <label class="form-label">السعر (ج.م) *</label>
+              <input type="number" class="form-control" id="projPrice" min="0" step="any" value="0" placeholder="مثال: 50">
             </div>
             <div id="paymentFields" style="display:none;">
               <div class="row">
@@ -147,49 +160,76 @@
           uploadBtn.onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
         }
         try {
-          const [projSnap, purchSnap] = await Promise.all([
-            getDocs(collection(db, 'projects')),
-            getDocs(collection(db, 'purchases'))
-          ]);
-          projSnap.docs.forEach(d => {
-            if (d.data().sellerId === user.uid) myOwnedIds.add(d.id);
-          });
+          // مشتريات المستخدم فقط — الإبداعات من sellerId داخل loadProjects
+          const purchSnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
           purchSnap.docs.forEach(d => {
             const x = d.data();
-            if (x.buyerId === user.uid && (x.status === 'approved' || x.status === 'owned_free')) {
+            if (x.status === 'approved' || x.status === 'owned_free') {
               myPurchasedIds.add(x.projectId);
             }
           });
         } catch (e) { console.error(e); }
       }
-      loadProjects(currentPage || 1);
+      loadProjects('first');
     });
 
-    async function loadProjects(page = 1) {
-      currentPage = page;
+    let projectsCursor = null;
+    let projectsPageStack = [null]; // for prev pages
+    let projectsPageIndex = 0;
+
+    async function loadProjects(direction = 'first') {
+      currentPage = direction;
       const grid = document.getElementById('projectsGrid');
       grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
       try {
-        // استعلام بسيط عشان محتاجش Index
-        const snap = await getDocs(collection(db, 'projects'));
-        allDocs = snap.docs.filter(d => {
-          const data = d.data();
-          return data.status === 'active';
-        });
-        // ترتيب يدوي
-        allDocs.sort((a, b) => {
-          const dateA = a.data().createdAt?.toMillis?.() || 0;
-          const dateB = b.data().createdAt?.toMillis?.() || 0;
-          return dateB - dateA;
-        });
+        // قراءة 10 مشاريع نشطة فقط لكل صفحة (توفير قراءات)
+        let qBase;
+        try {
+          if (direction === 'next' && projectsCursor) {
+            qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(projectsCursor), limit(PAGE_SIZE));
+          } else if (direction === 'prev' && projectsPageIndex > 0) {
+            projectsPageIndex--;
+            const cursor = projectsPageStack[projectsPageIndex];
+            qBase = cursor
+              ? query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE_SIZE))
+              : query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+          } else {
+            projectsPageIndex = 0;
+            projectsPageStack = [null];
+            qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+          }
+        } catch (e) {
+          qBase = query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE));
+        }
 
-        const start = (page - 1) * PAGE_SIZE;
-        const pageDocs = allDocs.slice(start, start + PAGE_SIZE);
+        let snap;
+        try {
+          snap = await getDocs(qBase);
+        } catch (idxErr) {
+          // بدون orderBy لو الـ index ناقص
+          snap = await getDocs(query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE)));
+        }
+
+        const pageDocs = snap.docs.filter(d => d.data().status === 'active');
+        if (currentUser) {
+          pageDocs.forEach(d => {
+            if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
+          });
+        }
 
         if (pageDocs.length === 0) {
           grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد مشاريع بعد. كن أول من يشارك!</p></div>';
+          document.getElementById('pagination').innerHTML = '';
           return;
+        }
+
+        if (direction === 'next' || direction === 'first') {
+          if (direction === 'next') {
+            projectsPageStack.push(projectsCursor);
+            projectsPageIndex = projectsPageStack.length - 1;
+          }
+          projectsCursor = pageDocs[pageDocs.length - 1];
         }
 
         grid.innerHTML = pageDocs.map(d => {
@@ -230,17 +270,19 @@
           `;
         }).join('');
 
-        // Pagination
-        const totalPages = Math.ceil(allDocs.length / PAGE_SIZE);
         const pag = document.getElementById('pagination');
-        pag.innerHTML = '';
-        for (let i = 1; i <= totalPages; i++) {
-          pag.innerHTML += `<li class="page-item ${i === page ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
-        }
-        pag.querySelectorAll('.page-link').forEach(el => {
+        const hasNext = pageDocs.length >= PAGE_SIZE;
+        const hasPrev = projectsPageIndex > 0;
+        pag.innerHTML = `
+          <li class="page-item ${hasPrev ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="prev">السابق</a></li>
+          <li class="page-item disabled"><span class="page-link">صفحة ${projectsPageIndex + 1}</span></li>
+          <li class="page-item ${hasNext ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="next">التالي</a></li>
+        `;
+        pag.querySelectorAll('.page-link[data-dir]').forEach(el => {
           el.addEventListener('click', (e) => {
             e.preventDefault();
-            loadProjects(parseInt(el.dataset.page));
+            if (el.parentElement.classList.contains('disabled')) return;
+            loadProjects(el.dataset.dir);
           });
         });
       } catch (err) {
@@ -248,7 +290,7 @@
         grid.innerHTML = `<div class="col-12 text-center text-danger">
           <p>حدث خطأ في التحميل</p>
           <small class="text-muted">${err.message || err}</small>
-          <p class="mt-2">تأكد إنك أنشأت Firestore وفعلت القواعد</p>
+          <p class="mt-2">لو طلب Index من Firebase اضغط على اللينك في الـ Console</p>
         </div>`;
       }
     }
@@ -261,7 +303,7 @@
 
     // بعد النشر الناجح من app.js نعيد تحميل القائمة
     document.getElementById('uploadForm')?.addEventListener('submit', () => {
-      setTimeout(() => loadProjects(1), 1500);
+      setTimeout(() => loadProjects('first'), 1500);
     });
   </script>
 </body>
