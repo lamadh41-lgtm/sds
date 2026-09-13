@@ -192,9 +192,31 @@
       } catch(e) {}
     }
 
+    async function resolveSellerPhoto(p) {
+      if (p.sellerPhoto) return p.sellerPhoto;
+      if (!p.sellerId || p.sellerId === 'official') return '';
+      // قراءة واحدة فقط عند غياب الصورة المنسوخة (منتجات قديمة) — لا تُكرّر
+      try {
+        const uSnap = await getDoc(doc(db, 'users', p.sellerId));
+        if (uSnap.exists()) {
+          const u = uSnap.data();
+          const url = u.photoURL || u.avatarUrl || '';
+          if (url) {
+            p.sellerPhoto = url; // cache محلي في نفس الجلسة
+            // تحديث خلفي خفيف للمنتج بدون await (توفير reads لاحقاً)
+            updateDoc(doc(db, 'projects', projectId), { sellerPhoto: url }).catch(() => {});
+          }
+          return url;
+        }
+      } catch (_) {}
+      return '';
+    }
+
     async function renderProduct() {
       await checkPurchase();
       const p = projectData;
+      // حل صورة البائع للمنتجات القديمة مرة واحدة فقط
+      if (!p.sellerPhoto) p.sellerPhoto = await resolveSellerPhoto(p);
       const isFree = p.isFree || p.price === 0;
       const canDownload = hasPurchased || isOwner;
 
@@ -262,6 +284,7 @@
             <hr>
             ${filesSection}
             <div id="actionArea" class="mt-3">${actionBtn}</div>
+            <p class="text-muted small mt-3 mb-0"><i class="far fa-calendar-alt me-1"></i>تاريخ النشر: ${(() => { try { const d = p.createdAt?.toDate?.() || (p.createdAt ? new Date(p.createdAt) : null); if (!d) return '-'; return d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0'); } catch { return '-'; } })()}</p>
           </div>
         </div>
         <hr class="my-4">
@@ -322,13 +345,21 @@
             const stars = '★'.repeat(c.stars || 0) + '☆'.repeat(5 - (c.stars || 0));
             const isMine = currentUser && c.userId === currentUser.uid;
             if (isMine) myCommentId = d.id;
+            let cDate = '';
+            try {
+              const dd = c.createdAt?.toDate?.() || (c.createdAt ? new Date(c.createdAt) : null);
+              if (dd) cDate = dd.getFullYear() + '/' + String(dd.getMonth()+1).padStart(2,'0') + '/' + String(dd.getDate()).padStart(2,'0');
+            } catch {}
             return `<div class="border-bottom py-2">
-              <div class="d-flex justify-content-between">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-1">
                 <strong>${c.userName || 'مستخدم'}</strong>
                 <span class="text-warning">${stars}</span>
               </div>
               <p class="mb-1 small">${c.text || ''}</p>
-              ${isMine ? `<button class="btn btn-link btn-sm p-0 edit-my-comment" data-id="${d.id}" data-stars="${c.stars||5}" data-text="${(c.text||'').replace(/"/g,'&quot;')}">تعديل التعليق</button>` : ''}
+              <div class="d-flex justify-content-between align-items-center">
+                <small class="text-muted">${cDate ? '<i class="far fa-calendar-alt me-1"></i>' + cDate : ''}</small>
+                ${isMine ? `<button class="btn btn-link btn-sm p-0 edit-my-comment" data-id="${d.id}" data-stars="${c.stars||5}" data-text="${(c.text||'').replace(/"/g,'&quot;')}">تعديل التعليق</button>` : ''}
+              </div>
             </div>`;
           }).join('');
           list.querySelectorAll('.edit-my-comment').forEach(btn => {

@@ -173,7 +173,7 @@
         allPurchases = purchSnap.docs
           .filter(d => {
             const p = d.data();
-            return p.status === 'approved' && (parseFloat(p.price || p.amount) || 0) > 0;
+            return p.status === 'approved' && !p.earningsVoided && (parseFloat(p.price || p.amount) || 0) > 0;
           })
           .map(d => ({ id: d.id, ...d.data(), _date: toDate(d.data().approvedAt || d.data().createdAt) }));
 

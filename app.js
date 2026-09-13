@@ -491,7 +491,7 @@ function collectProjectFormData() {
     return null;
   }
   if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
-  const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
+  const thumbFile = window._croppedThumbFile || document.getElementById('projThumbFile')?.files?.[0];
   const filesFile = document.getElementById('projFilesFile')?.files?.[0];
   if (!thumbFile || !filesFile) {
     showToast('ارفع الصورة المصغرة وملف المشروع', 'error');
@@ -534,9 +534,11 @@ async function saveProjectWithStatus(status, successMsg) {
   isPublishing = true;
   showLoading(true, 'جاري رفع ملف المشروع...', 0);
   try {
-    const thumbFile0 = document.getElementById('projThumbFile')?.files?.[0];
+    const thumbFile0 = window._croppedThumbFile || document.getElementById('projThumbFile')?.files?.[0] || null;
     const filesFile = document.getElementById('projFilesFile')?.files?.[0];
-    const extraImgs = Array.from(document.getElementById('projExtraImages')?.files || []).slice(0, 12);
+    const extraImgs = (window._extraImageFiles && window._extraImageFiles.length)
+      ? window._extraImageFiles.slice(0, 12)
+      : Array.from(document.getElementById('projExtraImages')?.files || []).slice(0, 12);
     const setProg = (pct, txt) => showLoading(true, txt || 'جاري رفع ملف المشروع...', pct);
     try {
       if (!thumbFile0 || !filesFile) throw new Error('الصورة المصغرة وملف المشروع مطلوبان');
@@ -584,6 +586,11 @@ async function saveProjectWithStatus(status, successMsg) {
     showToast(successMsg);
     bootstrap.Modal.getInstance(document.getElementById('uploadModal'))?.hide();
     document.getElementById('uploadForm')?.reset();
+    window._extraImageFiles = [];
+    window._croppedThumbFile = null;
+    if (typeof renderExtraPreview === 'function') renderExtraPreview();
+    const tp = document.getElementById('thumbPreview'); if (tp) tp.innerHTML = '';
+    const fp = document.getElementById('filesPreview'); if (fp) fp.innerHTML = '';
     const pf = document.getElementById('paymentFields');
     if (pf) pf.style.display = 'none';
   } catch (err) {
@@ -1040,3 +1047,190 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('DOMContentLoaded', togglePaymentFields);
 document.getElementById('uploadModal')?.addEventListener('shown.bs.modal', togglePaymentFields);
+
+// ===== Image Cropper (lightweight, no external deps) =====
+// aspect: '1' square (profile), 'free' or number for thumbnail
+function openImageCropper(file, options = {}) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      reject(new Error('ملف غير صالح'));
+      return;
+    }
+    const aspect = options.aspect === 'free' ? null : (parseFloat(options.aspect) || 1);
+    const outSize = options.outSize || 400;
+    const title = options.title || 'قص الصورة';
+
+    let modal = document.getElementById('imageCropModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'imageCropModal';
+      modal.className = 'modal fade';
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="cropModalTitle">قص الصورة</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+              <p class="small text-muted mb-2">اسحب المربع لتغيير المنطقة، واستخدم الزر للتأكيد</p>
+              <div id="cropCanvasWrap" style="position:relative;display:inline-block;max-width:100%;touch-action:none;">
+                <canvas id="cropBgCanvas" style="max-width:100%;display:block;border-radius:8px;"></canvas>
+                <div id="cropBox" style="position:absolute;border:2px solid #d4af37;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);cursor:move;box-sizing:border-box;"></div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+              <button type="button" class="btn btn-primary-custom text-white" id="cropConfirmBtn">تأكيد القص</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+    document.getElementById('cropModalTitle').textContent = title;
+    const bgCanvas = document.getElementById('cropBgCanvas');
+    const cropBox = document.getElementById('cropBox');
+    const wrap = document.getElementById('cropCanvasWrap');
+    const ctx = bgCanvas.getContext('2d');
+
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const maxDisp = Math.min(560, window.innerWidth - 48);
+      let dw = img.width, dh = img.height;
+      if (dw > maxDisp) { dh = Math.round(dh * maxDisp / dw); dw = maxDisp; }
+      if (dh > 420) { dw = Math.round(dw * 420 / dh); dh = 420; }
+      bgCanvas.width = dw;
+      bgCanvas.height = dh;
+      bgCanvas.style.width = dw + 'px';
+      bgCanvas.style.height = dh + 'px';
+      ctx.drawImage(img, 0, 0, dw, dh);
+
+      // initial crop box
+      let boxW, boxH;
+      if (aspect) {
+        if (dw / dh > aspect) { boxH = Math.min(dh * 0.85, dw * 0.85 / aspect); boxW = boxH * aspect; }
+        else { boxW = Math.min(dw * 0.85, dh * 0.85 * aspect); boxH = boxW / aspect; }
+      } else {
+        boxW = dw * 0.8; boxH = dh * 0.8;
+      }
+      let boxX = (dw - boxW) / 2, boxY = (dh - boxH) / 2;
+      const place = () => {
+        cropBox.style.left = boxX + 'px';
+        cropBox.style.top = boxY + 'px';
+        cropBox.style.width = boxW + 'px';
+        cropBox.style.height = boxH + 'px';
+      };
+      place();
+
+      let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+      const onDown = (e) => {
+        dragging = true;
+        const pt = e.touches ? e.touches[0] : e;
+        startX = pt.clientX; startY = pt.clientY;
+        origX = boxX; origY = boxY;
+        e.preventDefault();
+      };
+      const onMove = (e) => {
+        if (!dragging) return;
+        const pt = e.touches ? e.touches[0] : e;
+        let nx = origX + (pt.clientX - startX);
+        let ny = origY + (pt.clientY - startY);
+        nx = Math.max(0, Math.min(dw - boxW, nx));
+        ny = Math.max(0, Math.min(dh - boxH, ny));
+        boxX = nx; boxY = ny;
+        place();
+      };
+      const onUp = () => { dragging = false; };
+      cropBox.onmousedown = onDown;
+      cropBox.ontouchstart = onDown;
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchend', onUp);
+
+      const bsModal = new bootstrap.Modal(modal);
+      const cleanup = () => {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchend', onUp);
+        URL.revokeObjectURL(url);
+      };
+      modal.addEventListener('hidden.bs.modal', () => { cleanup(); reject(new Error('cancelled')); }, { once: true });
+
+      document.getElementById('cropConfirmBtn').onclick = () => {
+        // map display coords to natural image
+        const scaleX = img.width / dw;
+        const scaleY = img.height / dh;
+        const sx = boxX * scaleX, sy = boxY * scaleY;
+        const sw = boxW * scaleX, sh = boxH * scaleY;
+        const out = document.createElement('canvas');
+        const targetW = aspect === 1 ? outSize : Math.min(outSize * 2, Math.round(sw));
+        const targetH = aspect === 1 ? outSize : Math.round(targetW * (sh / sw));
+        out.width = targetW;
+        out.height = targetH;
+        out.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+        out.toBlob((blob) => {
+          cleanup();
+          bsModal.hide();
+          if (!blob) { reject(new Error('فشل القص')); return; }
+          const name = (file.name || 'image').replace(/\.\w+$/, '') + '_crop.jpg';
+          resolve(new File([blob], name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.88);
+      };
+      bsModal.show();
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('تعذر قراءة الصورة')); };
+    img.src = url;
+  });
+}
+window.openImageCropper = openImageCropper;
+
+// Extra images accumulator (append instead of replace)
+window._extraImageFiles = window._extraImageFiles || [];
+function renderExtraPreview() {
+  const box = document.getElementById('extraPreview');
+  if (!box) return;
+  const files = window._extraImageFiles || [];
+  box.innerHTML = files.map((f, i) => `
+    <div class="position-relative d-inline-block me-1 mb-1">
+      <img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;border:1px solid #ddd;">
+      <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 p-0 extra-rm" data-i="${i}"
+        style="width:20px;height:20px;line-height:1;font-size:11px;border-radius:50%;transform:translate(30%,-30%);">×</button>
+    </div>`).join('') + (files.length ? `<div class="small text-muted w-100">${files.length} / 12 صورة</div>` : '');
+  box.querySelectorAll('.extra-rm').forEach(btn => {
+    btn.onclick = () => {
+      window._extraImageFiles.splice(parseInt(btn.dataset.i, 10), 1);
+      renderExtraPreview();
+    };
+  });
+}
+window.renderExtraPreview = renderExtraPreview;
+
+function clearFileInput(inputId, previewId) {
+  const inp = document.getElementById(inputId);
+  if (inp) inp.value = '';
+  const prev = previewId ? document.getElementById(previewId) : null;
+  if (prev) prev.innerHTML = '';
+}
+window.clearFileInput = clearFileInput;
+
+function formatArDate(ts) {
+  try {
+    let d = null;
+    if (!ts) return '';
+    if (typeof ts.toDate === 'function') d = ts.toDate();
+    else if (ts instanceof Date) d = ts;
+    else if (typeof ts === 'string' || typeof ts === 'number') d = new Date(ts);
+    if (!d || isNaN(d.getTime())) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  } catch { return ''; }
+}
+window.formatArDate = formatArDate;
+
+export { openImageCropper, formatArDate };

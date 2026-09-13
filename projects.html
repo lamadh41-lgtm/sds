@@ -66,21 +66,28 @@
             </div>
             <div class="mb-3">
               <label class="form-label">الصورة المصغرة * (صورة واحدة فقط)</label>
-              <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
-              <small class="text-muted">صورة واحدة — تظهر كغلاف للمنتج</small>
+              <div class="d-flex gap-2 align-items-start">
+                <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
+                <button type="button" class="btn btn-outline-danger btn-sm flex-shrink-0 d-none" id="clearThumbBtn" title="حذف"><i class="fas fa-times"></i></button>
+              </div>
+              <small class="text-muted">بعد الاختيار ستظهر أداة القص لاختيار المنطقة الظاهرة</small>
               <div id="thumbPreview" class="mt-2"></div>
             </div>
             <div class="mb-3">
-              <label class="form-label">صور إضافية (اختياري — أكثر من صورة)</label>
+              <label class="form-label">صور إضافية (اختياري — حتى 12)</label>
               <input type="file" class="form-control" id="projExtraImages" accept="image/*" multiple>
-              <small class="text-muted">يمكنك اختيار عدة صور مرة واحدة (حتى 12)</small>
+              <small class="text-muted">كل اختيار جديد <strong>يُضاف</strong> للقائمة (لا يستبدل). اضغط × لحذف صورة</small>
               <div id="extraPreview" class="mt-2 d-flex flex-wrap gap-1"></div>
             </div>
             <input type="hidden" id="projImagesFiles" value="">
             <div class="mb-3">
               <label class="form-label">ملف المشروع * (ملف واحد فقط)</label>
-              <input type="file" class="form-control" id="projFilesFile" accept=".zip,.rar,.7z,.tar,.gz,.tgz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/octet-stream,*/*" required>
-              <small class="text-muted">ملف واحد فقط: ZIP أو RAR أو أي ملف مضغوط أو ملف عادي — <strong>غير مسموح برفع مجلد</strong></small>
+              <div class="d-flex gap-2 align-items-start">
+                <input type="file" class="form-control" id="projFilesFile" accept=".zip,.rar,.7z,.tar,.gz,.tgz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/octet-stream,*/*" required>
+                <button type="button" class="btn btn-outline-danger btn-sm flex-shrink-0 d-none" id="clearFilesBtn" title="حذف"><i class="fas fa-times"></i></button>
+              </div>
+              <small class="text-muted">ملف واحد فقط: ZIP أو RAR — <strong>غير مسموح برفع مجلد</strong></small>
+              <div id="filesPreview" class="mt-1 small text-success"></div>
               <div class="progress mt-2 d-none" id="uploadProgressWrap" style="height:8px;">
                 <div class="progress-bar" id="uploadProgressBar" style="width:0%"></div>
               </div>
@@ -324,26 +331,83 @@
   
     document.getElementById('projFilesFile')?.addEventListener('change', (e) => {
       const f = e.target.files?.[0];
-      if (!f) return;
+      const clearBtn = document.getElementById('clearFilesBtn');
+      const prev = document.getElementById('filesPreview');
+      if (!f) {
+        if (clearBtn) clearBtn.classList.add('d-none');
+        if (prev) prev.textContent = '';
+        return;
+      }
       if (f.name === '.' || (f.size === 0 && f.type === '')) {
         showToast?.('غير مسموح برفع مجلد — ارفع ملف واحد', 'error');
         e.target.value = '';
+        return;
       }
+      if (clearBtn) clearBtn.classList.remove('d-none');
+      if (prev) prev.textContent = '✓ ' + f.name + ' (' + Math.round(f.size/1024) + ' ك.ب)';
     });
-    document.getElementById('projThumbFile')?.addEventListener('change', (e) => {
+    document.getElementById('clearFilesBtn')?.addEventListener('click', () => {
+      const inp = document.getElementById('projFilesFile');
+      if (inp) inp.value = '';
+      document.getElementById('clearFilesBtn')?.classList.add('d-none');
+      const prev = document.getElementById('filesPreview');
+      if (prev) prev.textContent = '';
+    });
+
+    document.getElementById('projThumbFile')?.addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
       const box = document.getElementById('thumbPreview');
+      const clearBtn = document.getElementById('clearThumbBtn');
       if (!box) return;
-      if (!f) { box.innerHTML = ''; return; }
-      box.innerHTML = `<img src="${URL.createObjectURL(f)}" style="height:80px;width:110px;object-fit:cover;border-radius:8px;border:2px solid #d4af37;">`;
+      if (!f) {
+        box.innerHTML = '';
+        window._croppedThumbFile = null;
+        clearBtn?.classList.add('d-none');
+        return;
+      }
+      try {
+        const cropped = await (window.openImageCropper || openImageCropper)(f, { aspect: 16/9, outSize: 800, title: 'قص الصورة المصغرة' });
+        window._croppedThumbFile = cropped;
+        box.innerHTML = `<img src="${URL.createObjectURL(cropped)}" style="height:80px;width:120px;object-fit:cover;border-radius:8px;border:2px solid #d4af37;">`;
+        clearBtn?.classList.remove('d-none');
+      } catch (err) {
+        if (err.message !== 'cancelled') showToast?.(err.message || 'فشل القص', 'error');
+        e.target.value = '';
+        window._croppedThumbFile = null;
+        box.innerHTML = '';
+        clearBtn?.classList.add('d-none');
+      }
     });
+    document.getElementById('clearThumbBtn')?.addEventListener('click', () => {
+      const inp = document.getElementById('projThumbFile');
+      if (inp) inp.value = '';
+      window._croppedThumbFile = null;
+      const box = document.getElementById('thumbPreview');
+      if (box) box.innerHTML = '';
+      document.getElementById('clearThumbBtn')?.classList.add('d-none');
+    });
+
+    // الصور الإضافية: كل اختيار يُضاف للقائمة (لا يستبدل)
+    window._extraImageFiles = window._extraImageFiles || [];
     document.getElementById('projExtraImages')?.addEventListener('change', (e) => {
-      const files = Array.from(e.target.files || []).slice(0, 12);
-      const box = document.getElementById('extraPreview');
-      if (!box) return;
-      box.innerHTML = files.map(f =>
-        `<img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">`
-      ).join('');
+      const incoming = Array.from(e.target.files || []);
+      if (!incoming.length) return;
+      const cur = window._extraImageFiles || [];
+      const room = Math.max(0, 12 - cur.length);
+      const add = incoming.slice(0, room);
+      window._extraImageFiles = cur.concat(add);
+      if (typeof renderExtraPreview === 'function') renderExtraPreview();
+      else {
+        const box = document.getElementById('extraPreview');
+        if (box) box.innerHTML = window._extraImageFiles.map((f,i)=>`
+          <div class="position-relative d-inline-block me-1 mb-1">
+            <img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">
+            <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 p-0" data-i="${i}"
+              style="width:20px;height:20px;font-size:11px;border-radius:50%;" onclick="window._extraImageFiles.splice(${i},1);this.parentElement.remove();">×</button>
+          </div>`).join('');
+      }
+      e.target.value = ''; // يسمح باختيار نفس الملف لاحقاً والإضافة مجدداً
+      if (incoming.length > room) showToast?.('تم الوصول للحد الأقصى 12 صورة', 'error');
     });
   </script>
 </body>
