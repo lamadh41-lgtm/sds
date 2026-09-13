@@ -56,7 +56,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, collection, query, where, getDocs, orderBy, doc, getDoc } from './firebase.js';
+    import { auth, db, onAuthStateChanged, collection, query, where, getDocs, orderBy, limit, doc, getDoc } from './firebase.js';
     import { showToast } from './app.js';
     // getDriveDownloadUrl on window
 
@@ -78,7 +78,7 @@
         return;
       }
 
-      const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
+      const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
       const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
       const pendingDocs = allBuy.docs.filter(d => ['pending', 'rejected'].includes(d.data().status));
       const receivedEl = document.getElementById('receivedList');

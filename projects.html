@@ -70,7 +70,7 @@
                 <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
                 <button type="button" class="btn btn-outline-danger btn-sm flex-shrink-0 d-none" id="clearThumbBtn" title="حذف"><i class="fas fa-times"></i></button>
               </div>
-              <small class="text-muted">بعد الاختيار ستظهر أداة القص لاختيار المنطقة الظاهرة</small>
+              <small class="text-muted d-block">المقاس المطلوب للعرض للمستخدمين: <strong>800 × 450</strong> بكسل (نسبة 16:9). بعد الاختيار تقدر تحرّك المربع وتكبّره/تصغّره من الزوايا.</small>
               <div id="thumbPreview" class="mt-2"></div>
             </div>
             <div class="mb-3">
@@ -183,7 +183,7 @@
         }
         try {
           // مشتريات المستخدم فقط — الإبداعات من sellerId داخل loadProjects
-          const purchSnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid)));
+          const purchSnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
           purchSnap.docs.forEach(d => {
             const x = d.data();
             if (x.status === 'approved' || x.status === 'owned_free') {

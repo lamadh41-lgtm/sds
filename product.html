@@ -81,7 +81,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, updateDoc, increment } from './firebase.js';
+    import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, query, where, limit, serverTimestamp, updateDoc, increment } from './firebase.js';
     import { showToast as appToast, showLoading as appLoading, moderateText, linkifyText } from './app.js';
 
     // دوال مساعدة محلية عشان منعتمدش على app.js
@@ -180,8 +180,23 @@
       if (!currentUser || !projectId) return;
       isOwner = projectData && projectData.sellerId === currentUser.uid;
       try {
-        // مشتريات المستخدم الحالي فقط — مش كل المشتريات
-        const snap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', currentUser.uid)));
+        // قراءة مشتريات هذا المنتج لهذا المشتري فقط (مش كل مشترياته)
+        let snap;
+        try {
+          snap = await getDocs(query(
+            collection(db, 'purchases'),
+            where('buyerId', '==', currentUser.uid),
+            where('projectId', '==', projectId),
+            limit(5)
+          ));
+        } catch (_) {
+          // fallback لو مفيش composite index
+          snap = await getDocs(query(
+            collection(db, 'purchases'),
+            where('buyerId', '==', currentUser.uid),
+            limit(40)
+          ));
+        }
         snap.docs.forEach(d => {
           const x = d.data();
           if (x.projectId === projectId) {

@@ -57,7 +57,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, collection, addDoc, query, where, onSnapshot, serverTimestamp } from './firebase.js';
+    import { auth, db, onAuthStateChanged, collection, addDoc, query, where, limit, onSnapshot, serverTimestamp } from './firebase.js';
 
     function showToast(msg, type='success') {
       let container = document.querySelector('.toast-container');
@@ -79,8 +79,8 @@
       const chatBox = document.getElementById('chatBox');
       chatBox.innerHTML = '<div class="text-center text-muted">جاري تحميل المحادثة...</div>';
 
-      // بدون orderBy عشان منحتاجش Index
-      const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid));
+      // الصفحة دي مخصصة للدردشة — onSnapshot هنا مقصود، مع limit
+      const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(80));
       onSnapshot(q, (snap) => {
         if (snap.empty) {
           chatBox.innerHTML = '<div class="text-center text-muted py-3">ابدأ المحادثة بإرسال رسالة</div>';

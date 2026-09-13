@@ -116,7 +116,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
-    import { auth, db, onAuthStateChanged, collection, getDocs, query, where, doc, getDoc } from './firebase.js';
+    import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc } from './firebase.js';
     import { showToast, showLoading, getInitials } from './app.js';
 
     let currentUser = null;
@@ -163,8 +163,8 @@
       list.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
       try {
         const [projSnap, purchSnap] = await Promise.all([
-          getDocs(query(collection(db, 'projects'), where('sellerId', '==', currentUser.uid))),
-          getDocs(query(collection(db, 'purchases'), where('sellerId', '==', currentUser.uid)))
+          getDocs(query(collection(db, 'projects'), where('sellerId', '==', currentUser.uid), limit(80))),
+          getDocs(query(collection(db, 'purchases'), where('sellerId', '==', currentUser.uid), limit(80)))
         ]);
         myProjects = projSnap.docs
           .filter(d => d.data().status !== 'deleted' && !d.data().isFree && (parseFloat(d.data().price) || 0) > 0)

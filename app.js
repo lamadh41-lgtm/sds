@@ -415,8 +415,13 @@ onAuthStateChanged(auth, async (user) => {
       modal.show();
     });
 
+    // الإشعارات: تحميل خفيف مرة واحدة للشارة فقط — القائمة تتحدث عند فتح القائمة
     loadUserNotifications(user.uid);
-    document.getElementById('notifBtn')?.addEventListener('show.bs.dropdown', () => markNotificationsRead(user.uid));
+    const notifBtn = document.getElementById('notifBtn');
+    if (notifBtn && !notifBtn.dataset.bound) {
+      notifBtn.dataset.bound = '1';
+      notifBtn.addEventListener('show.bs.dropdown', () => markNotificationsRead(user.uid));
+    }
     initSupportWidget(user);
     // إظهار قيمة الرصيد جنب القائمة
     const bal = parseFloat(currentUserData?.balance) || 0;
@@ -685,14 +690,17 @@ async function loadUserNotifications(uid) {
 
 async function markNotificationsRead(uid) {
   try {
-    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
+    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(30)));
     const unread = snap.docs.filter(d => !d.data().read);
     if (unread.length) {
       await Promise.all(unread.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
     }
     const badge = document.getElementById('notifBadge');
     if (badge) badge.classList.add('d-none');
-    setTimeout(() => loadUserNotifications(uid), 400);
+    // تحديث الواجهة محلياً بدون قراءة ثانية
+    document.querySelectorAll('#notifList .notif-item').forEach(el => {
+      el.classList.remove('bg-warning', 'bg-opacity-10');
+    });
   } catch (e) { console.error(e); }
 }
 
@@ -700,92 +708,123 @@ async function markNotificationsRead(uid) {
 let supportOpen = false;
 let supportUnsub = null;
 
-function initSupportWidget(user) {
-  if (document.getElementById('supportFab')) return;
+function stopSupportListener() {
+  if (supportUnsub) {
+    try { supportUnsub(); } catch (_) {}
+    supportUnsub = null;
+  }
+}
 
-  document.body.insertAdjacentHTML('beforeend', `
-    <div id="supportFab" class="support-fab">
-      <div id="supportPanel" class="support-panel">
-        <div class="support-panel-header">
-          <span><i class="fas fa-headset me-1"></i> الدعم</span>
-          <button type="button" id="supportCloseBtn" class="btn btn-sm btn-light py-0 px-2">&times;</button>
+function renderSupportSnap(snap) {
+  const box = document.getElementById('supportChatBox');
+  if (!box) return;
+  const docs = snap.docs.slice().sort((a, b) => {
+    return (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0);
+  });
+  if (docs.length === 0) {
+    box.innerHTML = '<div class="text-center text-muted small py-3">ابدأ المحادثة بإرسال رسالة</div>';
+    return;
+  }
+  box.innerHTML = docs.map(d => {
+    const m = d.data();
+    const isMe = m.sender === 'user';
+    const time = m.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
+    return `<div class="chat-message ${isMe ? 'me' : ''}">
+      <div class="chat-bubble">${m.text || ''}</div>
+      <small class="text-muted chat-time">${time}</small>
+    </div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function startSupportListener(user) {
+  stopSupportListener();
+  if (!user) return;
+  const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid));
+  // يشتغل فقط وأنا فاتح لوحة الدعم — مش في الخلفية
+  supportUnsub = onSnapshot(q, (snap) => {
+    if (!supportOpen) return;
+    renderSupportSnap(snap);
+  }, () => {});
+}
+
+function initSupportWidget(user) {
+  stopSupportListener();
+  supportOpen = false;
+
+  let fab = document.getElementById('supportFab');
+  if (!fab) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="supportFab" class="support-fab">
+        <div id="supportPanel" class="support-panel">
+          <div class="support-panel-header">
+            <span><i class="fas fa-headset me-1"></i> الدعم</span>
+            <button type="button" id="supportCloseBtn" class="btn btn-sm btn-light py-0 px-2">&times;</button>
+          </div>
+          <div id="supportChatBox" class="support-chat-box">
+            <div class="text-center text-muted small py-3">اضغط لفتح المحادثة</div>
+          </div>
+          <div class="support-input-row" id="supportInputRow" style="display:none">
+            <input type="text" id="supportInput" class="form-control form-control-sm" placeholder="اكتب رسالتك...">
+            <button class="btn btn-sm btn-primary" id="supportSendBtn"><i class="fas fa-paper-plane"></i></button>
+          </div>
         </div>
-        <div id="supportChatBox" class="support-chat-box">
-          <div class="text-center text-muted small py-3">${user ? 'جاري التحميل...' : 'سجّل دخول للتواصل مع الدعم'}</div>
-        </div>
-        <div class="support-input-row" id="supportInputRow" style="${user ? '' : 'display:none'}">
-          <input type="text" id="supportInput" class="form-control form-control-sm" placeholder="اكتب رسالتك...">
-          <button class="btn btn-sm btn-primary" id="supportSendBtn"><i class="fas fa-paper-plane"></i></button>
-        </div>
+        <button type="button" id="supportToggleBtn" class="support-toggle-btn">
+          <i class="fas fa-headset me-1"></i> الدعم
+          <span id="supportBadge" class="support-badge d-none">0</span>
+        </button>
       </div>
-      <button type="button" id="supportToggleBtn" class="support-toggle-btn">
-        <i class="fas fa-headset me-1"></i> الدعم
-        <span id="supportBadge" class="support-badge d-none">0</span>
-      </button>
-    </div>
-  `);
+    `);
+    fab = document.getElementById('supportFab');
+  }
 
   const panel = document.getElementById('supportPanel');
   const toggleBtn = document.getElementById('supportToggleBtn');
   const closeBtn = document.getElementById('supportCloseBtn');
+  const inputRow = document.getElementById('supportInputRow');
+  const box = document.getElementById('supportChatBox');
 
-  toggleBtn.addEventListener('click', () => {
-    supportOpen = !supportOpen;
-    panel.classList.toggle('open', supportOpen);
-    if (supportOpen && user) {
-      markSupportRead(user.uid);
-      loadSupportMessages(user);
+  panel.classList.remove('open');
+  if (inputRow) inputRow.style.display = user ? '' : 'none';
+  if (box) {
+    box.innerHTML = `<div class="text-center text-muted small py-3">${user ? 'اضغط لفتح المحادثة' : 'سجّل دخول للتواصل مع الدعم'}</div>`;
+  }
+
+  const openPanel = () => {
+    if (!user) {
+      showToast('سجّل دخول أولاً للتواصل مع الدعم', 'error');
+      return;
     }
-  });
-  closeBtn.addEventListener('click', () => {
+    supportOpen = true;
+    panel.classList.add('open');
+    // بدء الاستماع فقط عند الفتح — لا قراءات قبل ذلك
+    startSupportListener(user);
+    markSupportRead(user.uid);
+  };
+  const closePanel = () => {
     supportOpen = false;
     panel.classList.remove('open');
-  });
+    stopSupportListener();
+  };
+
+  // استبدال المستمعين لتجنب التكرار عند إعادة النداء
+  toggleBtn.onclick = () => { if (supportOpen) closePanel(); else openPanel(); };
+  closeBtn.onclick = closePanel;
 
   if (user) {
-    // Live badge for unread admin messages
-    const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid));
-    supportUnsub = onSnapshot(q, (snap) => {
-      const unread = snap.docs.filter(d => d.data().sender === 'admin' && !d.data().read).length;
-      const badge = document.getElementById('supportBadge');
-      if (!badge) return;
-      if (unread > 0 && !supportOpen) {
-        badge.textContent = unread > 9 ? '9+' : unread;
-        badge.classList.remove('d-none');
-      } else {
-        badge.classList.add('d-none');
-      }
-      if (supportOpen) loadSupportMessages(user);
-    });
-
-    document.getElementById('supportSendBtn')?.addEventListener('click', () => sendSupportMsg(user));
-    document.getElementById('supportInput')?.addEventListener('keydown', (e) => {
+    document.getElementById('supportSendBtn').onclick = () => sendSupportMsg(user);
+    document.getElementById('supportInput').onkeydown = (e) => {
       if (e.key === 'Enter') sendSupportMsg(user);
-    });
+    };
   }
 }
 
 function loadSupportMessages(user) {
+  // توافق قديم: تحميل مرة واحدة فقط لو احتيج (بدون listener دائم)
   const box = document.getElementById('supportChatBox');
   if (!box || !user) return;
-  getDocs(query(collection(db, 'supportChats'), where('userId', '==', user.uid))).then(snap => {
-    const docs = snap.docs.slice().sort((a, b) => {
-      return (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0);
-    });
-    if (docs.length === 0) {
-      box.innerHTML = '<div class="text-center text-muted small py-3">ابدأ المحادثة بإرسال رسالة</div>';
-      return;
-    }
-    box.innerHTML = docs.map(d => {
-      const m = d.data();
-      const isMe = m.sender === 'user';
-      const time = m.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
-      return `<div class="chat-message ${isMe ? 'me' : ''}">
-        <div class="chat-bubble">${m.text || ''}</div>
-        <small class="text-muted chat-time">${time}</small>
-      </div>`;
-    }).join('');
-    box.scrollTop = box.scrollHeight;
+  getDocs(query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(50))).then(snap => {
+    renderSupportSnap(snap);
   }).catch(e => { box.innerHTML = `<div class="text-danger small">${e.message}</div>`; });
 }
 
@@ -808,9 +847,11 @@ async function sendSupportMsg(user) {
 
 async function markSupportRead(uid) {
   try {
-    const snap = await getDocs(query(collection(db, 'supportChats'), where('userId', '==', uid)));
+    const snap = await getDocs(query(collection(db, 'supportChats'), where('userId', '==', uid), limit(40)));
     const unread = snap.docs.filter(d => d.data().sender === 'admin' && !d.data().read);
-    await Promise.all(unread.map(d => updateDoc(doc(db, 'supportChats', d.id), { read: true })));
+    if (unread.length) {
+      await Promise.all(unread.map(d => updateDoc(doc(db, 'supportChats', d.id), { read: true })));
+    }
     document.getElementById('supportBadge')?.classList.add('d-none');
   } catch (e) {}
 }
@@ -818,9 +859,18 @@ async function markSupportRead(uid) {
 // ===== News Bar (dismiss محلي — يظهر تاني لو الخبر اتغيّر) =====
 async function loadNewsBar() {
   try {
-    const snap = await getDoc(doc(db, 'settings', 'news'));
-    if (!snap.exists()) return;
-    const data = snap.data();
+    // كاش جلسة: قراءة واحدة لكل تبويب بدل كل تنقل بين الصفحات
+    let data = null;
+    try {
+      const cached = sessionStorage.getItem('newsBarCache');
+      if (cached) data = JSON.parse(cached);
+    } catch (_) {}
+    if (!data) {
+      const snap = await getDoc(doc(db, 'settings', 'news'));
+      if (!snap.exists()) return;
+      data = snap.data();
+      try { sessionStorage.setItem('newsBarCache', JSON.stringify({ active: !!data.active, text: data.text || '' })); } catch (_) {}
+    }
     if (!data.active || !data.text) {
       document.getElementById('newsBar')?.remove();
       document.getElementById('newsShowBtn')?.remove();
@@ -1048,8 +1098,8 @@ document.addEventListener('change', (e) => {
 document.addEventListener('DOMContentLoaded', togglePaymentFields);
 document.getElementById('uploadModal')?.addEventListener('shown.bs.modal', togglePaymentFields);
 
-// ===== Image Cropper (lightweight, no external deps) =====
-// aspect: '1' square (profile), 'free' or number for thumbnail
+// ===== Image Cropper (drag + resize) =====
+// aspect: number (e.g. 1 or 16/9) or 'free'
 function openImageCropper(file, options = {}) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) {
@@ -1059,63 +1109,84 @@ function openImageCropper(file, options = {}) {
     const aspect = options.aspect === 'free' ? null : (parseFloat(options.aspect) || 1);
     const outSize = options.outSize || 400;
     const title = options.title || 'قص الصورة';
+    const hint = options.hint || 'اسحب المربع للتحريك · اسحب الزوايا للتكبير/التصغير';
 
     let modal = document.getElementById('imageCropModal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'imageCropModal';
-      modal.className = 'modal fade';
-      modal.tabIndex = -1;
-      modal.innerHTML = `
-        <div class="modal-dialog modal-dialog-centered modal-lg">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="cropModalTitle">قص الصورة</h5>
-              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body text-center">
-              <p class="small text-muted mb-2">اسحب المربع لتغيير المنطقة، واستخدم الزر للتأكيد</p>
-              <div id="cropCanvasWrap" style="position:relative;display:inline-block;max-width:100%;touch-action:none;">
-                <canvas id="cropBgCanvas" style="max-width:100%;display:block;border-radius:8px;"></canvas>
-                <div id="cropBox" style="position:absolute;border:2px solid #d4af37;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);cursor:move;box-sizing:border-box;"></div>
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.id = 'imageCropModal';
+    modal.className = 'modal fade';
+    modal.tabIndex = -1;
+    modal.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="cropModalTitle">${title}</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body text-center">
+            <p class="small text-muted mb-2" id="cropHintText">${hint}</p>
+            <div id="cropCanvasWrap" style="position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none;">
+              <canvas id="cropBgCanvas" style="max-width:100%;display:block;border-radius:8px;"></canvas>
+              <div id="cropBox" style="position:absolute;border:2px solid #d4af37;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);cursor:move;box-sizing:border-box;">
+                <span class="crop-handle" data-dir="nw" style="left:-7px;top:-7px;cursor:nwse-resize;"></span>
+                <span class="crop-handle" data-dir="ne" style="right:-7px;top:-7px;cursor:nesw-resize;"></span>
+                <span class="crop-handle" data-dir="sw" style="left:-7px;bottom:-7px;cursor:nesw-resize;"></span>
+                <span class="crop-handle" data-dir="se" style="right:-7px;bottom:-7px;cursor:nwse-resize;"></span>
               </div>
             </div>
-            <div class="modal-footer">
-              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
-              <button type="button" class="btn btn-primary-custom text-white" id="cropConfirmBtn">تأكيد القص</button>
+            <div class="mt-2 d-flex justify-content-center gap-2 flex-wrap">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="cropZoomOut" title="تصغير">− تصغير</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="cropZoomIn" title="تكبير">+ تكبير</button>
             </div>
           </div>
-        </div>`;
-      document.body.appendChild(modal);
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+            <button type="button" class="btn btn-primary-custom text-white" id="cropConfirmBtn">تأكيد القص</button>
+          </div>
+        </div>
+      </div>`;
+    // inject handle styles once
+    if (!document.getElementById('cropHandleStyles')) {
+      const st = document.createElement('style');
+      st.id = 'cropHandleStyles';
+      st.textContent = `.crop-handle{position:absolute;width:14px;height:14px;background:#d4af37;border:2px solid #fff;border-radius:50%;z-index:5;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+#cropBox{touch-action:none;}
+@media(max-width:576px){.crop-handle{width:18px;height:18px;}}`;
+      document.head.appendChild(st);
     }
-    document.getElementById('cropModalTitle').textContent = title;
+    document.body.appendChild(modal);
+
     const bgCanvas = document.getElementById('cropBgCanvas');
     const cropBox = document.getElementById('cropBox');
-    const wrap = document.getElementById('cropCanvasWrap');
     const ctx = bgCanvas.getContext('2d');
 
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const maxDisp = Math.min(560, window.innerWidth - 48);
+      const maxDisp = Math.min(560, window.innerWidth - 40);
       let dw = img.width, dh = img.height;
       if (dw > maxDisp) { dh = Math.round(dh * maxDisp / dw); dw = maxDisp; }
-      if (dh > 420) { dw = Math.round(dw * 420 / dh); dh = 420; }
+      if (dh > Math.min(420, window.innerHeight * 0.5)) {
+        const maxH = Math.min(420, window.innerHeight * 0.5);
+        dw = Math.round(dw * maxH / dh); dh = maxH;
+      }
       bgCanvas.width = dw;
       bgCanvas.height = dh;
       bgCanvas.style.width = dw + 'px';
       bgCanvas.style.height = dh + 'px';
       ctx.drawImage(img, 0, 0, dw, dh);
 
-      // initial crop box
+      const minSide = 48;
       let boxW, boxH;
       if (aspect) {
-        if (dw / dh > aspect) { boxH = Math.min(dh * 0.85, dw * 0.85 / aspect); boxW = boxH * aspect; }
-        else { boxW = Math.min(dw * 0.85, dh * 0.85 * aspect); boxH = boxW / aspect; }
+        if (dw / dh > aspect) { boxH = Math.min(dh * 0.75, dw * 0.75 / aspect); boxW = boxH * aspect; }
+        else { boxW = Math.min(dw * 0.75, dh * 0.75 * aspect); boxH = boxW / aspect; }
       } else {
-        boxW = dw * 0.8; boxH = dh * 0.8;
+        boxW = dw * 0.75; boxH = dh * 0.75;
       }
       let boxX = (dw - boxW) / 2, boxY = (dh - boxH) / 2;
+
       const place = () => {
         cropBox.style.left = boxX + 'px';
         cropBox.style.top = boxY + 'px';
@@ -1124,33 +1195,100 @@ function openImageCropper(file, options = {}) {
       };
       place();
 
-      let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+      const clampBox = () => {
+        boxW = Math.max(minSide, Math.min(dw, boxW));
+        boxH = Math.max(minSide, Math.min(dh, boxH));
+        if (aspect) {
+          // keep aspect after clamp
+          if (boxW / boxH > aspect) boxW = boxH * aspect;
+          else boxH = boxW / aspect;
+          if (boxW > dw) { boxW = dw; boxH = boxW / aspect; }
+          if (boxH > dh) { boxH = dh; boxW = boxH * aspect; }
+        }
+        boxX = Math.max(0, Math.min(dw - boxW, boxX));
+        boxY = Math.max(0, Math.min(dh - boxH, boxY));
+      };
+
+      let mode = null; // 'move' | 'nw'|'ne'|'sw'|'se'
+      let startX = 0, startY = 0, oX = 0, oY = 0, oW = 0, oH = 0;
+
+      const getPt = (e) => {
+        const t = e.touches ? e.touches[0] : e;
+        return { x: t.clientX, y: t.clientY };
+      };
+
       const onDown = (e) => {
-        dragging = true;
-        const pt = e.touches ? e.touches[0] : e;
-        startX = pt.clientX; startY = pt.clientY;
-        origX = boxX; origY = boxY;
+        const handle = e.target.closest?.('.crop-handle');
+        mode = handle ? handle.dataset.dir : 'move';
+        const pt = getPt(e);
+        startX = pt.x; startY = pt.y;
+        oX = boxX; oY = boxY; oW = boxW; oH = boxH;
         e.preventDefault();
+        e.stopPropagation();
       };
       const onMove = (e) => {
-        if (!dragging) return;
-        const pt = e.touches ? e.touches[0] : e;
-        let nx = origX + (pt.clientX - startX);
-        let ny = origY + (pt.clientY - startY);
-        nx = Math.max(0, Math.min(dw - boxW, nx));
-        ny = Math.max(0, Math.min(dh - boxH, ny));
-        boxX = nx; boxY = ny;
+        if (!mode) return;
+        const pt = getPt(e);
+        const dx = pt.x - startX;
+        const dy = pt.y - startY;
+        if (mode === 'move') {
+          boxX = oX + dx;
+          boxY = oY + dy;
+        } else {
+          // resize from corners, keep aspect if set
+          let nx = oX, ny = oY, nw = oW, nh = oH;
+          if (mode.includes('e')) nw = oW + dx;
+          if (mode.includes('s')) nh = oH + dy;
+          if (mode.includes('w')) { nw = oW - dx; nx = oX + dx; }
+          if (mode.includes('n')) { nh = oH - dy; ny = oY + dy; }
+          if (aspect) {
+            // dominant axis by larger relative change
+            if (Math.abs(dx) > Math.abs(dy)) {
+              nh = nw / aspect;
+              if (mode.includes('n')) ny = oY + oH - nh;
+            } else {
+              nw = nh * aspect;
+              if (mode.includes('w')) nx = oX + oW - nw;
+            }
+          }
+          if (nw < minSide || nh < minSide) return;
+          if (nx < 0 || ny < 0 || nx + nw > dw || ny + nh > dh) {
+            // soft clamp
+            if (nx < 0) { nw += nx; nx = 0; if (aspect) nh = nw / aspect; }
+            if (ny < 0) { nh += ny; ny = 0; if (aspect) nw = nh * aspect; }
+            if (nx + nw > dw) { nw = dw - nx; if (aspect) nh = nw / aspect; }
+            if (ny + nh > dh) { nh = dh - ny; if (aspect) nw = nh * aspect; }
+            if (nw < minSide || nh < minSide) return;
+          }
+          boxX = nx; boxY = ny; boxW = nw; boxH = nh;
+        }
+        clampBox();
         place();
+        e.preventDefault();
       };
-      const onUp = () => { dragging = false; };
-      cropBox.onmousedown = onDown;
-      cropBox.ontouchstart = onDown;
+      const onUp = () => { mode = null; };
+
+      cropBox.addEventListener('mousedown', onDown);
+      cropBox.addEventListener('touchstart', onDown, { passive: false });
       window.addEventListener('mousemove', onMove);
       window.addEventListener('touchmove', onMove, { passive: false });
       window.addEventListener('mouseup', onUp);
       window.addEventListener('touchend', onUp);
 
+      const scaleBox = (factor) => {
+        const cx = boxX + boxW / 2, cy = boxY + boxH / 2;
+        boxW *= factor; boxH *= factor;
+        clampBox();
+        boxX = cx - boxW / 2;
+        boxY = cy - boxH / 2;
+        clampBox();
+        place();
+      };
+      document.getElementById('cropZoomIn').onclick = () => scaleBox(1.08);
+      document.getElementById('cropZoomOut').onclick = () => scaleBox(0.92);
+
       const bsModal = new bootstrap.Modal(modal);
+      let settled = false;
       const cleanup = () => {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('touchmove', onMove);
@@ -1158,17 +1296,25 @@ function openImageCropper(file, options = {}) {
         window.removeEventListener('touchend', onUp);
         URL.revokeObjectURL(url);
       };
-      modal.addEventListener('hidden.bs.modal', () => { cleanup(); reject(new Error('cancelled')); }, { once: true });
+      modal.addEventListener('hidden.bs.modal', () => {
+        cleanup();
+        if (!settled) reject(new Error('cancelled'));
+      }, { once: true });
 
       document.getElementById('cropConfirmBtn').onclick = () => {
-        // map display coords to natural image
+        settled = true;
         const scaleX = img.width / dw;
         const scaleY = img.height / dh;
         const sx = boxX * scaleX, sy = boxY * scaleY;
         const sw = boxW * scaleX, sh = boxH * scaleY;
         const out = document.createElement('canvas');
-        const targetW = aspect === 1 ? outSize : Math.min(outSize * 2, Math.round(sw));
-        const targetH = aspect === 1 ? outSize : Math.round(targetW * (sh / sw));
+        let targetW, targetH;
+        if (aspect === 1) {
+          targetW = outSize; targetH = outSize;
+        } else {
+          targetW = Math.min(Math.max(outSize, 640), Math.round(sw));
+          targetH = Math.round(targetW * (sh / sw));
+        }
         out.width = targetW;
         out.height = targetH;
         out.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
@@ -1178,7 +1324,7 @@ function openImageCropper(file, options = {}) {
           if (!blob) { reject(new Error('فشل القص')); return; }
           const name = (file.name || 'image').replace(/\.\w+$/, '') + '_crop.jpg';
           resolve(new File([blob], name, { type: 'image/jpeg' }));
-        }, 'image/jpeg', 0.88);
+        }, 'image/jpeg', 0.9);
       };
       bsModal.show();
     };
