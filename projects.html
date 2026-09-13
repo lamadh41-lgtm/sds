@@ -65,21 +65,28 @@
               <textarea class="form-control" id="projDesc" rows="4" required></textarea>
             </div>
             <div class="mb-3">
-              <label class="form-label">رابط صورة مصغرة من جوجل درايف *</label>
-              
-              <input type="file" class="form-control mb-1" id="projThumbFile" accept="image/*">
-              <small class="text-muted d-block mb-1">ارفع من جهازك (هيتخزن على درايف الإدارة) أو الصق رابط:</small>
-              <input type="url" class="form-control" id="projThumbLink" placeholder="https://drive.google.com/file/d/XXXX/view" required>
-              <small class="text-muted">ارفع الصورة على درايف → شارك → انسخ الرابط</small>
+              <label class="form-label">الصورة المصغرة * (صورة واحدة)</label>
+              <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
+              <small class="text-muted">صورة واحدة فقط — تُحفظ في مجلد المشروع / الصور</small>
+              <div id="thumbPreview" class="mt-2"></div>
             </div>
             <div class="mb-3">
-              <label class="form-label">رابط ملفات المشروع من جوجل درايف *</label>
-              
-              <input type="file" class="form-control mb-1" id="projFilesFile" accept=".zip,application/zip,application/x-zip-compressed,*/*">
-              <small class="text-muted d-block mb-1">ارفع ZIP من جهازك (حد أقصى حسب إعداد الإدارة) أو الصق رابط:</small>
-              <input type="url" class="form-control" id="projFilesLink" placeholder="أو رابط الملفات">
-              <small class="text-muted">ارفع المجلد أو الـ ZIP على درايف وشاركه (أي شخص لديه الرابط)</small>
+              <label class="form-label">صور إضافية (اختياري)</label>
+              <input type="file" class="form-control" id="projExtraImages" accept="image/*" multiple>
+              <small class="text-muted">يمكنك اختيار أكثر من صورة</small>
             </div>
+            <div class="mb-3">
+              <label class="form-label">ملفات المشروع * (ZIP أو ملفات)</label>
+              <input type="file" class="form-control" id="projFilesFile" accept=".zip,application/zip,application/x-zip-compressed,*/*" required>
+              <small class="text-muted">تُحفظ في مجلد المشروع / الملفات</small>
+              <div class="progress mt-2 d-none" id="uploadProgressWrap" style="height:8px;">
+                <div class="progress-bar" id="uploadProgressBar" style="width:0%"></div>
+              </div>
+              <div class="small text-muted" id="uploadProgressText"></div>
+            </div>
+            <!-- حقول مخفية للتوافق مع الكود القديم -->
+            <input type="hidden" id="projThumbLink" value="">
+            <input type="hidden" id="projFilesLink" value="">
             <div class="mb-3">
               <label class="form-label">نوع المنتج *</label>
               <div class="d-flex gap-3">

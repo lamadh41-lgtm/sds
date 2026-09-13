@@ -42,6 +42,14 @@ function showLoading(show = true) {
   if (el) el.classList.toggle('d-none', !show);
 }
 
+function linkifyText(text) {
+  if (!text) return '';
+  const escaped = String(text)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+window.linkifyText = linkifyText;
+
 function getInitials(name) {
   if (!name) return '?';
   return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
@@ -346,8 +354,8 @@ function collectProjectFormData() {
   if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
   const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
   const filesFile = document.getElementById('projFilesFile')?.files?.[0];
-  if ((!thumbLink && !thumbFile) || (!filesLink && !filesFile)) {
-    showToast('ارفع الصورة والملفات من جهازك أو الصق الروابط', 'error');
+  if (!thumbFile || !filesFile) {
+    showToast('ارفع الصورة المصغرة وملف المشروع من جهازك', 'error');
     return null;
   }
   if (pricing === 'paid' && price <= 0) {
@@ -384,21 +392,45 @@ async function saveProjectWithStatus(status, successMsg) {
   isPublishing = true;
   showLoading(true);
   try {
-    // رفع من الجهاز إن وُجد
-    const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
+    const thumbFile0 = document.getElementById('projThumbFile')?.files?.[0];
     const filesFile = document.getElementById('projFilesFile')?.files?.[0];
+    const extraImgs = Array.from(document.getElementById('projExtraImages')?.files || []);
+    const progressWrap = document.getElementById('uploadProgressWrap');
+    const progressBar = document.getElementById('uploadProgressBar');
+    const progressText = document.getElementById('uploadProgressText');
+    const setProg = (pct, txt) => {
+      if (progressWrap) progressWrap.classList.remove('d-none');
+      if (progressBar) progressBar.style.width = pct + '%';
+      if (progressText) progressText.textContent = txt || '';
+    };
     try {
-      if (thumbFile) {
-        showToast('جاري رفع الصورة...');
-        const up = await uploadToDriveScript(thumbFile);
-        data.thumbnail = up.url;
-        data.thumbnailDirect = up.thumbUrl || up.url;
+      if (!thumbFile0 || !filesFile) throw new Error('الصورة المصغرة وملف المشروع مطلوبان');
+      const projectName = data.title || 'project';
+      setProg(5, 'ضغط الصورة المصغرة...');
+      const thumbFile = await compressImageFile(thumbFile0, 1000, 0.7);
+      setProg(15, 'رفع الصورة المصغرة...');
+      const upThumb = await uploadToDriveScript(thumbFile, (p) => setProg(15 + p * 0.25, 'رفع المصغرة...'), { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
+      data.thumbnail = upThumb.url;
+      data.thumbnailDirect = upThumb.thumbUrl || upThumb.url;
+      data.images = [upThumb.url];
+      data.driveFolderUrl = upThumb.projectFolderUrl || '';
+
+      // صور إضافية بالتوازي قدر الإمكان
+      if (extraImgs.length) {
+        setProg(45, 'رفع الصور الإضافية...');
+        const compressed = await Promise.all(extraImgs.slice(0, 6).map(f => compressImageFile(f, 1200, 0.72)));
+        const ups = [];
+        for (const f of compressed) {
+          const u = await uploadToDriveScript(f, null, { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
+          ups.push(u.url);
+        }
+        data.images = data.images.concat(ups);
       }
-      if (filesFile) {
-        showToast('جاري رفع ملفات المشروع...');
-        const up = await uploadToDriveScript(filesFile);
-        data.filesLink = up.url;
-      }
+
+      setProg(70, 'رفع ملفات المشروع...');
+      const upFiles = await uploadToDriveScript(filesFile, (p) => setProg(70 + p * 0.25, 'رفع الملفات...'), { projectName, folderKind: 'files', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
+      data.filesLink = upFiles.url;
+      setProg(100, 'تم الرفع');
     } catch (upErr) {
       showToast('فشل الرفع: ' + (upErr.message || upErr), 'error');
       isPublishing = false;
@@ -406,7 +438,7 @@ async function saveProjectWithStatus(status, successMsg) {
       return;
     }
     if (!data.thumbnail || !data.filesLink) {
-      showToast('الصورة ورابط الملفات مطلوبان', 'error');
+      showToast('الصورة وملفات المشروع مطلوبان', 'error');
       isPublishing = false;
       showLoading(false);
       return;
@@ -679,7 +711,7 @@ async function loadNewsBar() {
     bar.id = 'newsBar';
     bar.className = 'news-bar';
     bar.innerHTML = `<div class="news-bar-inner d-flex align-items-center justify-content-center gap-2 flex-wrap">
-      <span><i class="fas fa-bullhorn me-2"></i>${data.text}</span>
+      <span><i class="fas fa-bullhorn me-2"></i>${(typeof linkifyText==='function'?linkifyText(data.text):data.text)}</span>
       <button type="button" class="btn btn-sm btn-dark py-0 px-2" id="newsDismissBtn" title="إخفاء">×</button>
     </div>`;
     document.body.prepend(bar);
@@ -704,6 +736,28 @@ async function getDriveUploadConfig() {
   }
 }
 
+function compressImageFile(file, maxW = 1200, quality = 0.72) {
+  return new Promise((resolve) => {
+    if (!file.type || !file.type.startsWith('image/')) { resolve(file); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) { resolve(file); return; }
+        resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }));
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -717,7 +771,7 @@ function fileToBase64(file) {
   });
 }
 
-async function uploadToDriveScript(file, onProgress) {
+async function uploadToDriveScript(file, onProgress, meta = {}) {
   const cfg = await getDriveUploadConfig();
   if (!cfg?.scriptUrl) {
     throw new Error('رفع الملفات غير مفعّل من الإدارة بعد — ادخل Drive في الأدمن واحفظ الرابط والـ SECRET');
@@ -730,18 +784,22 @@ async function uploadToDriveScript(file, onProgress) {
   if (file.size > maxMb * 1024 * 1024) {
     throw new Error(`الحد الأقصى ${maxMb} ميجا`);
   }
-  if (onProgress) onProgress(10);
+  const progressCb = typeof onProgress === 'function' ? onProgress : null;
+  if (progressCb) progressCb(10);
   const base64 = await fileToBase64(file);
-  if (onProgress) onProgress(40);
+  if (progressCb) progressCb(40);
 
   const payload = JSON.stringify({
     secret: cfg.secret || '',
     fileName: file.name,
     mimeType: file.type || 'application/octet-stream',
-    base64
+    base64,
+    projectName: (meta && meta.projectName) || 'project',
+    folderKind: (meta && meta.folderKind) || 'files',
+    userName: (meta && meta.userName) || '',
+    userId: (meta && meta.userId) || ''
   });
 
-  // XMLHttpRequest أحياناً أثبات من fetch مع تحويلات Google
   const text = await new Promise((resolve, reject) => {
     try {
       const xhr = new XMLHttpRequest();
@@ -749,7 +807,7 @@ async function uploadToDriveScript(file, onProgress) {
       xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
       xhr.timeout = 120000;
       xhr.onload = () => {
-        if (onProgress) onProgress(80);
+        if (progressCb) progressCb(80);
         resolve(xhr.responseText || '');
       };
       xhr.onerror = () => reject(new Error(
@@ -767,7 +825,7 @@ async function uploadToDriveScript(file, onProgress) {
     throw new Error('رد غير متوقع من السكربت. تأكد من النشر Anyone. جزء من الرد: ' + String(text).slice(0, 100));
   }
   if (!data.ok) throw new Error(data.error || 'فشل الرفع');
-  if (onProgress) onProgress(100);
+  if (progressCb) progressCb(100);
   return data;
 }
 window.uploadToDriveScript = uploadToDriveScript;
@@ -790,7 +848,7 @@ function moderateText(text, fieldName = 'النص') {
   }
   return true;
 }
-export { showToast, showLoading, getInitials, containsBadWords, moderateText };
+export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText };
 window.moderateText = moderateText;
 
 

@@ -82,7 +82,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
     import { auth, db, onAuthStateChanged, doc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, updateDoc, increment } from './firebase.js';
-    import { showToast as appToast, showLoading as appLoading, moderateText } from './app.js';
+    import { showToast as appToast, showLoading as appLoading, moderateText, linkifyText } from './app.js';
 
     // دوال مساعدة محلية عشان منعتمدش على app.js
     function showToast(message, type = 'success') {
@@ -217,7 +217,7 @@
             <p class="text-muted">بواسطة: <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none" style="color:#d4af37">${p.sellerName || 'بائع'}</a></p>
             <hr>
             <h5>الوصف</h5>
-            <p style="white-space:pre-wrap;">${p.description || 'لا يوجد وصف'}</p>
+            <p style="white-space:pre-wrap;">${(typeof linkifyText==='function'?linkifyText(p.description):p.description) || 'لا يوجد وصف'}</p>
             <hr>
             ${filesSection}
             <div id="actionArea" class="mt-3">${actionBtn}</div>
@@ -313,6 +313,18 @@
       // show form if purchased (free or paid approved)
       if (hasPurchased) area.classList.remove('d-none');
       else area.classList.add('d-none');
+
+      // بعد ما loadComments يشتغل هيتظبط الزرار
+      setTimeout(() => {
+        if (myCommentId) {
+          document.getElementById('submitCommentBtn')?.classList.add('d-none');
+          document.getElementById('updateCommentBtn')?.classList.remove('d-none');
+          document.getElementById('commentFormTitle').textContent = 'تحديث تعليقك وتقييمك';
+        } else {
+          document.getElementById('submitCommentBtn')?.classList.remove('d-none');
+          document.getElementById('updateCommentBtn')?.classList.add('d-none');
+        }
+      }, 500);
 
       document.getElementById('submitCommentBtn')?.addEventListener('click', async () => {
         if (!currentUser || myCommentId) return;

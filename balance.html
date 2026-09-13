@@ -37,8 +37,9 @@
           <div class="alert alert-warning">
             <strong>تحذير:</strong> لا يمكن الرجوع عن الطلب ولا يمكن استرجاع المال بعد الإرسال.
           </div>
-          <p>حوّل المبلغ <strong id="topupAmountLabel"></strong> ج.م على الرقم: <strong>01100505898</strong> ثم ارفع رابط صورة التحويل من درايف.</p>
-          <input type="url" class="form-control mb-2" id="topupTransferLink" placeholder="رابط صورة التحويل من جوجل درايف">
+          <p>حوّل المبلغ <strong id="topupAmountLabel"></strong> ج.م على الرقم: <strong>01100505898</strong> ثم ارفع <strong>صورة التحويل</strong> من جهازك.</p>
+          <input type="file" class="form-control mb-2" id="topupTransferFile" accept="image/*">
+          <input type="hidden" id="topupTransferLink" value="">
           <button class="btn btn-success" id="confirmTopupBtn">تأكيد إرسال الطلب للمراجعة</button>
         </div>
       </div>
@@ -51,6 +52,7 @@
   <script type="module">
     import { auth, db, onAuthStateChanged, doc, getDoc, collection, addDoc, getDocs, query, where, serverTimestamp } from './firebase.js';
     import { showToast, showLoading } from './app.js';
+    // uploadToDriveScript on window from app.js
 
     let currentUser = null;
     let pendingAmount = 0;
@@ -82,28 +84,41 @@
     };
 
     document.getElementById('confirmTopupBtn').onclick = async () => {
-      const link = document.getElementById('topupTransferLink').value.trim();
-      if (!link) { showToast('أدخل رابط صورة التحويل', 'error'); return; }
+      const file = document.getElementById('topupTransferFile')?.files?.[0];
+      if (!file) { showToast('ارفع صورة التحويل من جهازك', 'error'); return; }
       if (!confirm('تأكيد إرسال الطلب؟ لن يمكن الرجوع أو استرجاع المبلغ.')) return;
       showLoading(true);
       try {
         const u = await getDoc(doc(db, 'users', currentUser.uid));
         const data = u.exists() ? u.data() : {};
+        const userName = data.name || currentUser.displayName || currentUser.email || 'user';
+        // رفع صورة التحويل على درايف: المستخدم/التحويلات
+        if (typeof window.uploadToDriveScript !== 'function') {
+          throw new Error('وظيفة الرفع غير جاهزة — تأكد من تحميل app.js');
+        }
+        showToast('جاري رفع صورة التحويل...');
+        const up = await window.uploadToDriveScript(file, null, {
+          folderKind: 'transfers',
+          userName,
+          userId: currentUser.uid,
+          projectName: 'transfers'
+        });
         await addDoc(collection(db, 'topups'), {
           userId: currentUser.uid,
           userEmail: currentUser.email,
-          userName: data.name || currentUser.displayName || '',
+          userName,
           amount: pendingAmount,
-          transferImage: link,
+          transferImage: up.url,
+          transferThumb: up.thumbUrl || '',
           status: 'pending',
           createdAt: serverTimestamp()
         });
         showToast('تم إرسال طلب الشحن للمراجعة');
         document.getElementById('topupSteps').classList.add('d-none');
         document.getElementById('topupAmount').value = '';
-        document.getElementById('topupTransferLink').value = '';
+        document.getElementById('topupTransferFile').value = '';
         refresh();
-      } catch (e) { showToast(e.message, 'error'); }
+      } catch (e) { showToast('فشل: ' + (e.message || e), 'error'); }
       finally { showLoading(false); }
     };
 

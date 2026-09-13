@@ -1,0 +1,127 @@
+================================================================================
+  سكربت Google Apps Script — متجر مصران (محدث)
+  SECRET الثابت: moaz
+================================================================================
+
+1) افتح https://script.google.com
+2) مشروع جديد → الصق الكود بالكامل تحت
+3) احفظ
+4) Deploy → Manage deployments → Edit
+   - Execute as: Me
+   - Who has access: Anyone
+   - Version: New version
+5) Deploy وانسخ رابط /exec
+6) في لوحة الأدمن → Drive:
+   - الصق رابط /exec
+   - SECRET: moaz
+   - احفظ
+
+--------------------------------------------------------------------------------
+هيكل المجلدات على درايف:
+
+مجلد مصران (الجذر)
+ └── اسم_المستخدم_أو_ID/
+      ├── التحويلات/          ← صور تحويل شحن الرصيد
+      └── اسم_المشروع/
+           ├── الصور/         ← مصغرة + صور إضافية
+           └── الملفات/       ← ZIP وملفات المشروع
+
+ملاحظة توافق:
+- السكربت يبحث عن المجلد بالاسم؛ لو موجود يستخدمه، لو مش موجود ينشئه.
+- الملفات القديمة تفضل في أماكنها وروابط الموقع القديمة تظل شغالة.
+- أي رفع جديد يمشي على الهيكل الجديد فقط (من غير ما يبوّظ القديم).
+
+--------------------------------------------------------------------------------
+الكود:
+--------------------------------------------------------------------------------
+
+const FOLDER_ID = '1r_pMH_KZH-YlrllbqK0CbMvew00BhGqG';
+const SECRET = 'moaz';
+const MAX_BYTES = 15 * 1024 * 1024;
+
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents || '{}');
+    if (data.secret !== SECRET) {
+      return json_({ ok: false, error: 'غير مصرح' });
+    }
+
+    const b64 = data.base64 || '';
+    if (!b64) return json_({ ok: false, error: 'لا يوجد ملف' });
+
+    const sizeApprox = Math.floor(b64.length * 0.75);
+    if (sizeApprox > MAX_BYTES) {
+      return json_({ ok: false, error: 'الملف أكبر من الحد المسموح' });
+    }
+
+    const userKey = safeName_(data.userName || data.userId || 'unknown_user');
+    const projectName = safeName_(data.projectName || '');
+    // folderKind: images | files | transfers
+    const kind = String(data.folderKind || 'files');
+    const fileName = safeName_(data.fileName || 'file');
+    const mime = data.mimeType || 'application/octet-stream';
+
+    const root = DriveApp.getFolderById(FOLDER_ID);
+    // مجلد المستخدم (توافق: لو موجود يتستخدم)
+    const userFolder = getOrCreateFolder_(root, userKey);
+
+    let targetFolder;
+    let projectFolderUrl = '';
+
+    if (kind === 'transfers' || kind === 'التحويلات') {
+      // شحن رصيد: المستخدم/التحويلات
+      targetFolder = getOrCreateFolder_(userFolder, 'التحويلات');
+    } else {
+      // مشروع: المستخدم/اسم المشروع/الصور أو الملفات
+      const pName = projectName || 'project';
+      const projectFolder = getOrCreateFolder_(userFolder, pName);
+      projectFolderUrl = projectFolder.getUrl();
+      const subName = (kind === 'images' || kind === 'الصور') ? 'الصور' : 'الملفات';
+      targetFolder = getOrCreateFolder_(projectFolder, subName);
+    }
+
+    const blob = Utilities.newBlob(Utilities.base64Decode(b64), mime, fileName);
+    const file = targetFolder.createFile(blob);
+    // عرض فقط لمن لديه الرابط — الملفات القديمة بروابطها تفضل شغالة
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+    const id = file.getId();
+    return json_({
+      ok: true,
+      fileId: id,
+      url: 'https://drive.google.com/file/d/' + id + '/view',
+      thumbUrl: 'https://drive.google.com/thumbnail?id=' + id + '&sz=w1000',
+      projectFolderUrl: projectFolderUrl || userFolder.getUrl(),
+      userFolderUrl: userFolder.getUrl()
+    });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+}
+
+/** يجيب مجلد بالاسم أو ينشئه — متوافق مع الموجود والمستقبل */
+function getOrCreateFolder_(parent, name) {
+  const it = parent.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(name);
+}
+
+function safeName_(s) {
+  return String(s || 'file')
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .substring(0, 80) || 'file';
+}
+
+function json_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// اختبار من المحرر
+function testFolders() {
+  const root = DriveApp.getFolderById(FOLDER_ID);
+  Logger.log('Root: ' + root.getName());
+}
