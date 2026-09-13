@@ -319,6 +319,21 @@ onAuthStateChanged(auth, async (user) => {
 
 // Auth forms handled by bindAuthForms()
 
+function getDriveFileId(link) {
+  if (!link) return '';
+  const m1 = String(link).match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const m2 = String(link).match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return (m1 && m1[1]) || (m2 && m2[1]) || '';
+}
+/** رابط تنزيل مباشر من درايف (ملف واحد) */
+function getDriveDownloadUrl(link) {
+  const id = getDriveFileId(link);
+  if (!id) return link || '';
+  return `https://drive.google.com/uc?export=download&id=${id}`;
+}
+window.getDriveDownloadUrl = getDriveDownloadUrl;
+window.getDriveFileId = getDriveFileId;
+
 function getDriveImageUrl(link) {
   if (!link) return '';
   let id = '';
@@ -352,10 +367,11 @@ function collectProjectFormData() {
     return null;
   }
   if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
-  const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
+  const allImgsCheck = Array.from(document.getElementById('projImagesFiles')?.files || []);
+  const thumbFile = allImgsCheck[0] || document.getElementById('projThumbFile')?.files?.[0];
   const filesFile = document.getElementById('projFilesFile')?.files?.[0];
   if (!thumbFile || !filesFile) {
-    showToast('ارفع الصورة المصغرة وملف المشروع من جهازك', 'error');
+    showToast('ارفع صورة واحدة على الأقل وملف المشروع', 'error');
     return null;
   }
   if (pricing === 'paid' && price <= 0) {
@@ -392,9 +408,10 @@ async function saveProjectWithStatus(status, successMsg) {
   isPublishing = true;
   showLoading(true);
   try {
-    const thumbFile0 = document.getElementById('projThumbFile')?.files?.[0];
+    const allImgs = Array.from(document.getElementById('projImagesFiles')?.files || []);
+    const thumbFile0 = allImgs[0] || document.getElementById('projThumbFile')?.files?.[0];
     const filesFile = document.getElementById('projFilesFile')?.files?.[0];
-    const extraImgs = Array.from(document.getElementById('projExtraImages')?.files || []);
+    const extraImgs = allImgs.slice(1, 12);
     const progressWrap = document.getElementById('uploadProgressWrap');
     const progressBar = document.getElementById('uploadProgressBar');
     const progressText = document.getElementById('uploadProgressText');
@@ -407,7 +424,7 @@ async function saveProjectWithStatus(status, successMsg) {
       if (!thumbFile0 || !filesFile) throw new Error('الصورة المصغرة وملف المشروع مطلوبان');
       const projectName = data.title || 'project';
       setProg(5, 'ضغط الصورة المصغرة...');
-      const thumbFile = await compressImageFile(thumbFile0, 1000, 0.7);
+      const thumbFile = await compressImageFile(thumbFile0, 800, 0.6);
       setProg(15, 'رفع الصورة المصغرة...');
       const upThumb = await uploadToDriveScript(thumbFile, (p) => setProg(15 + p * 0.25, 'رفع المصغرة...'), { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
       data.thumbnail = upThumb.url;
@@ -417,14 +434,11 @@ async function saveProjectWithStatus(status, successMsg) {
 
       // صور إضافية بالتوازي قدر الإمكان
       if (extraImgs.length) {
-        setProg(45, 'رفع الصور الإضافية...');
-        const compressed = await Promise.all(extraImgs.slice(0, 6).map(f => compressImageFile(f, 1200, 0.72)));
-        const ups = [];
-        for (const f of compressed) {
-          const u = await uploadToDriveScript(f, null, { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
-          ups.push(u.url);
-        }
-        data.images = data.images.concat(ups);
+        setProg(40, 'رفع الصور الإضافية بالتوازي...');
+        const compressed = await Promise.all(extraImgs.map(f => compressImageFile(f, 900, 0.62)));
+        const userMeta = { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' };
+        const ups = await Promise.all(compressed.map(f => uploadToDriveScript(f, null, userMeta)));
+        data.images = data.images.concat(ups.map(u => u.url));
       }
 
       setProg(70, 'رفع ملفات المشروع...');
@@ -736,7 +750,7 @@ async function getDriveUploadConfig() {
   }
 }
 
-function compressImageFile(file, maxW = 1200, quality = 0.72) {
+function compressImageFile(file, maxW = 900, quality = 0.62) {
   return new Promise((resolve) => {
     if (!file.type || !file.type.startsWith('image/')) { resolve(file); return; }
     const img = new Image();
@@ -829,6 +843,7 @@ async function uploadToDriveScript(file, onProgress, meta = {}) {
   return data;
 }
 window.uploadToDriveScript = uploadToDriveScript;
+window.compressImageFile = compressImageFile;
 window.getDriveUploadConfig = getDriveUploadConfig;
 
 
@@ -848,7 +863,7 @@ function moderateText(text, fieldName = 'النص') {
   }
   return true;
 }
-export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText };
+export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl };
 window.moderateText = moderateText;
 
 

@@ -65,20 +65,18 @@
               <textarea class="form-control" id="projDesc" rows="4" required></textarea>
             </div>
             <div class="mb-3">
-              <label class="form-label">الصورة المصغرة * (صورة واحدة)</label>
-              <input type="file" class="form-control" id="projThumbFile" accept="image/*" required>
-              <small class="text-muted">صورة واحدة فقط — تُحفظ في مجلد المشروع / الصور</small>
-              <div id="thumbPreview" class="mt-2"></div>
+              <label class="form-label">صور المشروع * (يمكنك اختيار أكثر من صورة)</label>
+              <input type="file" class="form-control" id="projImagesFiles" accept="image/*" multiple required>
+              <small class="text-muted">أول صورة = المصغرة، والباقي صور إضافية (حتى 12 صورة). تُحفظ في مجلد الصور.</small>
+              <div id="thumbPreview" class="mt-2 d-flex flex-wrap gap-1"></div>
             </div>
+            <!-- توافق مع الكود -->
+            <input type="file" class="d-none" id="projThumbFile" accept="image/*">
+            <input type="file" class="d-none" id="projExtraImages" accept="image/*" multiple>
             <div class="mb-3">
-              <label class="form-label">صور إضافية (اختياري)</label>
-              <input type="file" class="form-control" id="projExtraImages" accept="image/*" multiple>
-              <small class="text-muted">يمكنك اختيار أكثر من صورة</small>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">ملفات المشروع * (ZIP أو ملفات)</label>
-              <input type="file" class="form-control" id="projFilesFile" accept=".zip,application/zip,application/x-zip-compressed,*/*" required>
-              <small class="text-muted">تُحفظ في مجلد المشروع / الملفات</small>
+              <label class="form-label">ملف المشروع * (ملف واحد فقط)</label>
+              <input type="file" class="form-control" id="projFilesFile" accept=".zip,.rar,.7z,.tar,.gz,.tgz,application/zip,application/x-zip-compressed,application/x-rar-compressed,application/octet-stream,*/*" required>
+              <small class="text-muted">ملف واحد فقط: ZIP أو RAR أو أي ملف مضغوط أو ملف عادي — <strong>غير مسموح برفع مجلد</strong></small>
               <div class="progress mt-2 d-none" id="uploadProgressWrap" style="height:8px;">
                 <div class="progress-bar" id="uploadProgressBar" style="width:0%"></div>
               </div>
@@ -317,6 +315,25 @@
     // بعد النشر الناجح من app.js نعيد تحميل القائمة
     document.getElementById('uploadForm')?.addEventListener('submit', () => {
       setTimeout(() => loadProjects('first'), 1500);
+    });
+  
+    document.getElementById('projFilesFile')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      // منع أي محاولة مجلد (بعض المتصفحات)
+      if (f.name === '.' || f.size === 0 && f.type === '') {
+        showToast?.('غير مسموح برفع مجلد — ارفع ملف واحد', 'error');
+        e.target.value = '';
+      }
+    });
+    document.getElementById('projImagesFiles')?.addEventListener('change' , (e) => {
+      const files = Array.from(e.target.files || []);
+      const box = document.getElementById('thumbPreview');
+      if (!box) return;
+      box.innerHTML = files.slice(0, 12).map(f => {
+        const url = URL.createObjectURL(f);
+        return `<img src="${url}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">`;
+      }).join('');
     });
   </script>
 </body>

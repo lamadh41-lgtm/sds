@@ -404,21 +404,37 @@
       }
     }
 
+    function triggerDirectDownload(url, filename) {
+      // محاولة تنزيل مباشر بدون فتح صفحة درايف
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', filename || 'project-file');
+      a.target = '_blank';
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
     async function handleFreeDownload() {
       if (!currentUser) {
         showToast('يجب تسجيل الدخول أولاً لتحميل المشروع', 'error');
         return;
       }
-      if (projectData.filesLink) {
-        window.open(projectData.filesLink, '_blank');
-        showToast('تم فتح رابط الملفات على جوجل درايف');
-      } else if (projectData.files && projectData.files.length > 0) {
-        projectData.files.forEach(f => window.open(f.url, '_blank'));
-        showToast('تم فتح روابط التحميل');
-      } else {
-        showToast('لا يوجد رابط ملفات', 'error');
+      const link = projectData.filesLink || (projectData.files && projectData.files[0] && projectData.files[0].url) || '';
+      if (!link) {
+        showToast('لا يوجد ملف للتحميل', 'error');
         return;
       }
+      let dl = link;
+      if (typeof window.getDriveDownloadUrl === 'function') {
+        dl = window.getDriveDownloadUrl(link) || link;
+      } else {
+        const m = String(link).match(/\/d\/([a-zA-Z0-9_-]+)/) || String(link).match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (m) dl = `https://drive.google.com/uc?export=download&id=${m[1]}`;
+      }
+      triggerDirectDownload(dl, (projectData.title || 'project') + '.zip');
+      showToast('جاري بدء التحميل...');
       try {
         await updateDoc(doc(db, 'projects', projectId), { downloads: increment(1) });
       } catch(e){}

@@ -96,8 +96,14 @@
         if (typeof window.uploadToDriveScript !== 'function') {
           throw new Error('وظيفة الرفع غير جاهزة — تأكد من تحميل app.js');
         }
-        showToast('جاري رفع صورة التحويل...');
-        const up = await window.uploadToDriveScript(file, null, {
+        showToast('جاري ضغط ورفع صورة التحويل...');
+        let fileToSend = file;
+        if (window.compressImageFile) {
+          fileToSend = await window.compressImageFile(file, 1000, 0.65);
+        } else if (typeof compressImageFile === 'function') {
+          fileToSend = await compressImageFile(file, 1000, 0.65);
+        }
+        const up = await window.uploadToDriveScript(fileToSend, null, {
           folderKind: 'transfers',
           userName,
           userId: currentUser.uid,

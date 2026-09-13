@@ -58,6 +58,7 @@
   <script type="module">
     import { auth, db, onAuthStateChanged, collection, query, where, getDocs, orderBy, doc, getDoc } from './firebase.js';
     import { showToast } from './app.js';
+    // getDriveDownloadUrl on window
 
     function thumbUrl(snap, live) {
       const s = snap || {};
@@ -116,7 +117,7 @@
                   <p class="small text-muted text-truncate">${desc}</p>
                   <div class="small text-muted mb-2">ID: ${p.projectId || d.id}</div>
                   ${filesLink
-                    ? `<a href="${filesLink}" target="_blank" class="btn btn-sm btn-primary-custom text-white"><i class="fas fa-download me-1"></i>تحميل</a>`
+                    ? `<a href="${(window.getDriveDownloadUrl ? window.getDriveDownloadUrl(filesLink) : filesLink)}" class="btn btn-sm btn-primary-custom text-white" download><i class="fas fa-download me-1"></i>تحميل</a>`
                     : '<span class="text-muted small">لا يوجد رابط تحميل</span>'}
                   ${p.projectId && live && live.status === 'active' ? `<a href="product.html?id=${p.projectId}" class="btn btn-sm btn-outline-secondary ms-1">عرض</a>` : ''}
                 </div>
