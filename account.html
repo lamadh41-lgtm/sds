@@ -29,7 +29,16 @@
   <div class="container py-5">
     <div class="account-card">
       <div class="profile-header">
-        <div class="profile-avatar-lg" id="profileAvatar">?</div>
+        <div class="text-center">
+          <div class="profile-avatar-lg mx-auto" id="profileAvatar">?</div>
+          <div class="mt-2">
+            <input type="file" id="profilePhotoInput" accept="image/*" class="d-none">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="uploadPhotoBtn">
+              <i class="fas fa-camera me-1"></i>رفع صورة الملف الشخصي
+            </button>
+            <div class="form-text small text-muted mt-1">ستظهر للناس في المنتجات وصفحة البائع</div>
+          </div>
+        </div>
         <div>
           <h3 class="mb-1" id="profileName">جاري التحميل...</h3>
           <p class="text-muted mb-0" id="profileEmail"></p>
@@ -102,10 +111,27 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
     import { auth, db, onAuthStateChanged, doc, getDoc, updateDoc, reauthenticateWithCredential, EmailAuthProvider, updateProfile } from './firebase.js';
-    import { showToast, showLoading, getInitials } from './app.js';
+    import { showToast, showLoading, getInitials, uploadToDriveScript, compressImageFile } from './app.js';
 
     let currentUser = null;
     let originalData = {};
+    let currentPhotoURL = '';
+
+    function setAvatarUI(name, photoURL) {
+      const el = document.getElementById('profileAvatar');
+      if (!el) return;
+      if (photoURL) {
+        el.innerHTML = `<img src="${photoURL}" alt="avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`;
+        el.style.background = 'transparent';
+        el.style.padding = '0';
+        el.style.overflow = 'hidden';
+      } else {
+        el.textContent = getInitials(name || '?');
+        el.style.background = '';
+        el.style.padding = '';
+        el.style.overflow = '';
+      }
+    }
 
     onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -116,8 +142,9 @@
       const snap = await getDoc(doc(db, 'users', user.uid));
       const data = snap.exists() ? snap.data() : {};
       originalData = { ...data, email: user.email };
+      currentPhotoURL = data.photoURL || data.avatarUrl || '';
 
-      document.getElementById('profileAvatar').textContent = getInitials(data.name || user.displayName);
+      setAvatarUI(data.name || user.displayName, currentPhotoURL);
       document.getElementById('profileName').textContent = data.name || user.displayName || 'مستخدم';
       document.getElementById('profileEmail').textContent = user.email;
       document.getElementById('profileId').textContent = user.uid;
@@ -139,6 +166,53 @@
         <a href="purchases.html" class="btn btn-outline-secondary btn-sm">مشترياتي</a>
         <a href="earnings.html" class="btn btn-outline-success btn-sm">أرباحك</a>
       `;
+    });
+
+    // رفع صورة الملف الشخصي → درايف (مجلد المستخدم/الملف_الشخصي) + حفظ الرابط في users فقط (بدون قراءات إضافية للمنتجات)
+    document.getElementById('uploadPhotoBtn')?.addEventListener('click', () => {
+      document.getElementById('profilePhotoInput')?.click();
+    });
+
+    document.getElementById('profilePhotoInput')?.addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        showToast('اختر صورة فقط', 'error');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('حجم الصورة كبير — الحد 5 ميجا', 'error');
+        return;
+      }
+      showLoading(true, 'جاري رفع صورة الملف الشخصي...');
+      try {
+        const compressed = await compressImageFile(file, 400, 0.75);
+        const up = await uploadToDriveScript(compressed, null, {
+          projectName: 'profile',
+          folderKind: 'profile',
+          userName: originalData.name || currentUser.displayName || '',
+          userId: currentUser.uid
+        });
+        const photoURL = up.thumbUrl || up.url;
+        await updateDoc(doc(db, 'users', currentUser.uid), {
+          photoURL,
+          avatarUrl: photoURL,
+          photoUpdatedAt: new Date().toISOString()
+        });
+        // تحديث عرض الاسم في Auth profile (اختياري)
+        try { await updateProfile(currentUser, { photoURL }); } catch (_) {}
+        currentPhotoURL = photoURL;
+        originalData.photoURL = photoURL;
+        originalData.avatarUrl = photoURL;
+        setAvatarUI(originalData.name || currentUser.displayName, photoURL);
+        showToast('تم رفع صورة الملف الشخصي بنجاح');
+      } catch (err) {
+        console.error(err);
+        showToast('فشل رفع الصورة: ' + (err.message || err), 'error');
+      } finally {
+        showLoading(false);
+        e.target.value = '';
+      }
     });
 
     let editing = false;

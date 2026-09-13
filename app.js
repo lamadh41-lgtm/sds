@@ -367,6 +367,10 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     const initials = getInitials(currentUserData.name || user.displayName);
+    const myPhoto = currentUserData.photoURL || currentUserData.avatarUrl || user.photoURL || '';
+    const avatarHtml = myPhoto
+      ? `<div class="user-avatar" style="padding:0;overflow:hidden;background:transparent;"><img src="${myPhoto}" alt="" style="width:100%;height:100%;object-fit:cover;"></div>`
+      : `<div class="user-avatar">${initials}</div>`;
     authArea.innerHTML = `
       <div class="dropdown" id="notifDropdown">
         <button class="btn btn-outline-secondary btn-sm position-relative" data-bs-toggle="dropdown" data-bs-auto-close="outside" id="notifBtn" title="الإشعارات">
@@ -376,14 +380,14 @@ onAuthStateChanged(auth, async (user) => {
         <div class="dropdown-menu dropdown-menu-end notif-menu p-0" style="min-width:320px;max-height:400px;overflow-y:auto;">
           <div class="p-2 border-bottom d-flex justify-content-between align-items-center bg-light">
             <strong><i class="fas fa-bell me-1"></i> الإشعارات</strong>
-            <button class="btn btn-sm btn-link text-decoration-none p-0" id="markAllRead">تعليم الكل كمقروء</button>
+            <button class="btn btn-sm btn-link text-decoration-none p-0" id="markAllRead">علم الكل كمقروء</button>
           </div>
           <div id="notifList" class="p-2"><div class="text-center text-muted small py-3">جاري التحميل...</div></div>
         </div>
       </div>
       <div class="dropdown">
         <div class="d-flex align-items-center gap-2" data-bs-toggle="dropdown" style="cursor:pointer;">
-          <div class="user-avatar">${initials}</div>
+          ${avatarHtml}
           <span class="d-none d-md-inline fw-semibold">${currentUserData.name || 'حسابي'}</span>
         </div>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -511,6 +515,8 @@ function collectProjectFormData() {
     filesLink, files: [],
     sellerId: currentUser.uid,
     sellerName: currentUserData?.name || currentUser.displayName || '',
+    // صورة البائع منسوخة هنا لتجنب قراءة users عند عرض كل منتج (توفير reads)
+    sellerPhoto: currentUserData?.photoURL || currentUserData?.avatarUrl || currentUser?.photoURL || '',
     paymentMethod: payMethod, paymentNumber: payNumber, paymentName: payName,
     commission: 5, isOfficial: false, downloads: 0, sales: 0
   };
@@ -975,7 +981,7 @@ function moderateText(text, fieldName = 'النص') {
   }
   return true;
 }
-export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl };
+export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl, uploadToDriveScript, compressImageFile };
 window.moderateText = moderateText;
 
 

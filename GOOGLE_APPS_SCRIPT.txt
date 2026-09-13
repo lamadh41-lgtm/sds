@@ -2,7 +2,7 @@
   سكربت Google Apps Script — متجر مصران
   SECRET الثابت: moaz
 --------------------------------------------------------------------------------
-  SCRIPT_VERSION = 2
+  SCRIPT_VERSION = 3
 
   قاعدة الإصدار (إلزامية):
   - أي تحديث أو تعديل على هذا الملف (بواسطة إنسان أو ذكاء اصطناعي)
@@ -28,6 +28,7 @@
 
 مجلد مصران (الجذر)
  └── اسم_المستخدم_أو_ID/
+      ├── الملف_الشخصي/       ← صورة الملف الشخصي
       ├── التحويلات/          ← صور تحويل شحن الرصيد
       └── اسم_المشروع/
            ├── الصور/         ← مصغرة + صور إضافية
@@ -63,7 +64,7 @@ function doPost(e) {
 
     const userKey = safeName_(data.userName || data.userId || 'unknown_user');
     const projectName = safeName_(data.projectName || '');
-    // folderKind: images | files | transfers
+    // folderKind: images | files | transfers | profile
     const kind = String(data.folderKind || 'files');
     const fileName = safeName_(data.fileName || 'file');
     const mime = data.mimeType || 'application/octet-stream';
@@ -75,7 +76,10 @@ function doPost(e) {
     let targetFolder;
     let projectFolderUrl = '';
 
-    if (kind === 'transfers' || kind === 'التحويلات') {
+    if (kind === 'profile' || kind === 'الملف_الشخصي' || kind === 'avatar') {
+      // صورة الملف الشخصي: المستخدم/الملف_الشخصي
+      targetFolder = getOrCreateFolder_(userFolder, 'الملف_الشخصي');
+    } else if (kind === 'transfers' || kind === 'التحويلات') {
       // شحن رصيد: المستخدم/التحويلات
       targetFolder = getOrCreateFolder_(userFolder, 'التحويلات');
     } else {

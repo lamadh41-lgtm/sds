@@ -61,6 +61,7 @@
       try {
         let sellerName = 'تاجر';
         let sellerBio = '';
+        let sellerPhoto = '';
         if (sellerId === 'official') {
           sellerName = 'المحرك';
           sellerBio = 'الحساب الرسمي لمتجر مصران';
@@ -70,14 +71,18 @@
             const u = uSnap.data();
             sellerName = u.name || 'تاجر';
             sellerBio = u.bio || '';
+            sellerPhoto = u.photoURL || u.avatarUrl || '';
           }
         }
 
         const initials = (sellerName || '?').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const avatarBlock = sellerPhoto
+          ? `<div class="user-avatar" style="width:64px;height:64px;padding:0;overflow:hidden;background:transparent;"><img src="${sellerPhoto}" alt="" style="width:100%;height:100%;object-fit:cover;"></div>`
+          : `<div class="user-avatar" style="width:64px;height:64px;font-size:1.4rem;">${initials}</div>`;
         document.getElementById('sellerHeader').innerHTML = `
           <div class="card shadow-sm border-0">
             <div class="card-body d-flex align-items-center gap-3 flex-wrap">
-              <div class="user-avatar" style="width:64px;height:64px;font-size:1.4rem;">${initials}</div>
+              ${avatarBlock}
               <div>
                 <h3 class="mb-1">${sellerName}</h3>
                 ${sellerBio ? `<p class="text-muted mb-0 small">${sellerBio}</p>` : ''}

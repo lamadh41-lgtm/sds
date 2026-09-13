@@ -250,7 +250,12 @@
               <button type="button" class="btn btn-link btn-sm p-0 copy-prod-id" data-id="${projectId}" title="نسخ ID" style="font-size:0.8rem;"><i class="fas fa-copy"></i></button>
             </div>
             <div class="mb-3">${priceHtml}</div>
-            <p class="text-muted">بواسطة: <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none" style="color:#d4af37">${p.sellerName || 'بائع'}</a></p>
+            <p class="text-muted d-flex align-items-center gap-2 flex-wrap">بواسطة:
+              <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none d-inline-flex align-items-center gap-2" style="color:#d4af37">
+                ${p.sellerPhoto ? `<img src="${p.sellerPhoto}" alt="" class="rounded-circle" style="width:28px;height:28px;object-fit:cover;border:2px solid #d4af37;">` : `<span class="d-inline-flex align-items-center justify-content-center rounded-circle" style="width:28px;height:28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:0.7rem;font-weight:700;">${(p.sellerName||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()}</span>`}
+                ${p.sellerName || 'بائع'}
+              </a>
+            </p>
             <hr>
             <h5>الوصف</h5>
             <p style="white-space:pre-wrap;">${(typeof linkifyText==='function'?linkifyText(p.description):p.description) || 'لا يوجد وصف'}</p>
