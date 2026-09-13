@@ -723,7 +723,6 @@ async function uploadToDriveScript(file, onProgress) {
     throw new Error('رفع الملفات غير مفعّل من الإدارة بعد — ادخل Drive في الأدمن واحفظ الرابط والـ SECRET');
   }
   let scriptUrl = String(cfg.scriptUrl).trim();
-  // تأكد إنه رابط /exec مش /dev
   if (scriptUrl.includes('/dev')) {
     throw new Error('استخدم رابط النشر /exec مش رابط التجربة /dev');
   }
@@ -742,26 +741,30 @@ async function uploadToDriveScript(file, onProgress) {
     base64
   });
 
-  let res;
-  try {
-    res = await fetch(scriptUrl, {
-      method: 'POST',
-      mode: 'cors',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: payload
-    });
-  } catch (netErr) {
-    // رسالة أوضح لأشهر سبب
-    throw new Error(
-      'فشل الاتصال بسكربت الدرايف (Failed to fetch). تأكد من: 1) نشر Web App بصلاحية Anyone 2) نفس رابط /exec 3) تشغيل الموقع من سيرفر (مش file://) 4) تطابق SECRET'
-    );
-  }
-  if (onProgress) onProgress(80);
-  const text = await res.text();
+  // XMLHttpRequest أحياناً أثبات من fetch مع تحويلات Google
+  const text = await new Promise((resolve, reject) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', scriptUrl, true);
+      xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+      xhr.timeout = 120000;
+      xhr.onload = () => {
+        if (onProgress) onProgress(80);
+        resolve(xhr.responseText || '');
+      };
+      xhr.onerror = () => reject(new Error(
+        'فشل الاتصال بسكربت الدرايف. جرّب: Chrome بدون إضافات، ومن localhost، وتأكد أن Who has access = Anyone بعد New version.'
+      ));
+      xhr.ontimeout = () => reject(new Error('انتهت مهلة الرفع — جرب ملف أصغر'));
+      xhr.send(payload);
+    } catch (e) {
+      reject(e);
+    }
+  });
+
   let data;
   try { data = JSON.parse(text); } catch {
-    throw new Error('رد غير متوقع من السكربت. تأكد أن النشر Execute as: Me و Who has access: Anyone. الرد: ' + text.slice(0, 120));
+    throw new Error('رد غير متوقع من السكربت. تأكد من النشر Anyone. جزء من الرد: ' + String(text).slice(0, 100));
   }
   if (!data.ok) throw new Error(data.error || 'فشل الرفع');
   if (onProgress) onProgress(100);
