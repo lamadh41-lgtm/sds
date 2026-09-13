@@ -720,7 +720,12 @@ function fileToBase64(file) {
 async function uploadToDriveScript(file, onProgress) {
   const cfg = await getDriveUploadConfig();
   if (!cfg?.scriptUrl) {
-    throw new Error('رفع الملفات غير مفعّل من الإدارة بعد');
+    throw new Error('رفع الملفات غير مفعّل من الإدارة بعد — ادخل Drive في الأدمن واحفظ الرابط والـ SECRET');
+  }
+  let scriptUrl = String(cfg.scriptUrl).trim();
+  // تأكد إنه رابط /exec مش /dev
+  if (scriptUrl.includes('/dev')) {
+    throw new Error('استخدم رابط النشر /exec مش رابط التجربة /dev');
   }
   const maxMb = parseFloat(cfg.maxMb) || 15;
   if (file.size > maxMb * 1024 * 1024) {
@@ -729,26 +734,38 @@ async function uploadToDriveScript(file, onProgress) {
   if (onProgress) onProgress(10);
   const base64 = await fileToBase64(file);
   if (onProgress) onProgress(40);
-  const res = await fetch(cfg.scriptUrl, {
-    method: 'POST',
-    // text/plain يقلل مشاكل CORS مع Apps Script أحياناً
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      secret: cfg.secret || '',
-      fileName: file.name,
-      mimeType: file.type || 'application/octet-stream',
-      base64
-    })
+
+  const payload = JSON.stringify({
+    secret: cfg.secret || '',
+    fileName: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    base64
   });
+
+  let res;
+  try {
+    res = await fetch(scriptUrl, {
+      method: 'POST',
+      mode: 'cors',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: payload
+    });
+  } catch (netErr) {
+    // رسالة أوضح لأشهر سبب
+    throw new Error(
+      'فشل الاتصال بسكربت الدرايف (Failed to fetch). تأكد من: 1) نشر Web App بصلاحية Anyone 2) نفس رابط /exec 3) تشغيل الموقع من سيرفر (مش file://) 4) تطابق SECRET'
+    );
+  }
   if (onProgress) onProgress(80);
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch {
-    throw new Error('رد غير متوقع من سكربت الدرايف');
+    throw new Error('رد غير متوقع من السكربت. تأكد أن النشر Execute as: Me و Who has access: Anyone. الرد: ' + text.slice(0, 120));
   }
   if (!data.ok) throw new Error(data.error || 'فشل الرفع');
   if (onProgress) onProgress(100);
-  return data; // { url, thumbUrl, fileId }
+  return data;
 }
 window.uploadToDriveScript = uploadToDriveScript;
 window.getDriveUploadConfig = getDriveUploadConfig;
