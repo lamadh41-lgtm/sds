@@ -344,8 +344,10 @@ function collectProjectFormData() {
     return null;
   }
   if (!moderateText(title, 'عنوان المشروع') || !moderateText(desc, 'الوصف')) return null;
-  if (!thumbLink || !filesLink) {
-    showToast('يجب إدخال رابط الصورة ورابط الملفات من جوجل درايف', 'error');
+  const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
+  const filesFile = document.getElementById('projFilesFile')?.files?.[0];
+  if ((!thumbLink && !thumbFile) || (!filesLink && !filesFile)) {
+    showToast('ارفع الصورة والملفات من جهازك أو الصق الروابط', 'error');
     return null;
   }
   if (pricing === 'paid' && price <= 0) {
@@ -382,6 +384,33 @@ async function saveProjectWithStatus(status, successMsg) {
   isPublishing = true;
   showLoading(true);
   try {
+    // رفع من الجهاز إن وُجد
+    const thumbFile = document.getElementById('projThumbFile')?.files?.[0];
+    const filesFile = document.getElementById('projFilesFile')?.files?.[0];
+    try {
+      if (thumbFile) {
+        showToast('جاري رفع الصورة...');
+        const up = await uploadToDriveScript(thumbFile);
+        data.thumbnail = up.url;
+        data.thumbnailDirect = up.thumbUrl || up.url;
+      }
+      if (filesFile) {
+        showToast('جاري رفع ملفات المشروع...');
+        const up = await uploadToDriveScript(filesFile);
+        data.filesLink = up.url;
+      }
+    } catch (upErr) {
+      showToast('فشل الرفع: ' + (upErr.message || upErr), 'error');
+      isPublishing = false;
+      showLoading(false);
+      return;
+    }
+    if (!data.thumbnail || !data.filesLink) {
+      showToast('الصورة ورابط الملفات مطلوبان', 'error');
+      isPublishing = false;
+      showLoading(false);
+      return;
+    }
     await addDoc(collection(db, 'projects'), {
       ...data,
       status,
@@ -661,6 +690,69 @@ async function loadNewsBar() {
   } catch (e) { console.error(e); }
 }
 loadNewsBar();
+
+
+// ===== رفع ملف على درايف الأدمن عبر Apps Script =====
+async function getDriveUploadConfig() {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'drive'));
+    if (!snap.exists()) return null;
+    return snap.data();
+  } catch (e) {
+    console.error(e);
+    return null;
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = String(reader.result || '');
+      const b64 = res.includes(',') ? res.split(',')[1] : res;
+      resolve(b64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadToDriveScript(file, onProgress) {
+  const cfg = await getDriveUploadConfig();
+  if (!cfg?.scriptUrl) {
+    throw new Error('رفع الملفات غير مفعّل من الإدارة بعد');
+  }
+  const maxMb = parseFloat(cfg.maxMb) || 15;
+  if (file.size > maxMb * 1024 * 1024) {
+    throw new Error(`الحد الأقصى ${maxMb} ميجا`);
+  }
+  if (onProgress) onProgress(10);
+  const base64 = await fileToBase64(file);
+  if (onProgress) onProgress(40);
+  const res = await fetch(cfg.scriptUrl, {
+    method: 'POST',
+    // text/plain يقلل مشاكل CORS مع Apps Script أحياناً
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      secret: cfg.secret || '',
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      base64
+    })
+  });
+  if (onProgress) onProgress(80);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch {
+    throw new Error('رد غير متوقع من سكربت الدرايف');
+  }
+  if (!data.ok) throw new Error(data.error || 'فشل الرفع');
+  if (onProgress) onProgress(100);
+  return data; // { url, thumbUrl, fileId }
+}
+window.uploadToDriveScript = uploadToDriveScript;
+window.getDriveUploadConfig = getDriveUploadConfig;
+
 
 // Export for other pages
 window.appHelpers = { showToast, showLoading, getInitials, currentUser, currentUserData, loadUserNotifications };
