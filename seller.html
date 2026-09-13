@@ -63,8 +63,19 @@
         let sellerBio = '';
         let sellerPhoto = '';
         if (sellerId === 'official') {
-          sellerName = 'المحرك';
+          sellerName = 'محرك مصران';
           sellerBio = 'الحساب الرسمي لمتجر مصران';
+          try {
+            const cached = sessionStorage.getItem('officialProfilePhoto');
+            if (cached) sellerPhoto = cached;
+            else {
+              const oSnap = await getDoc(doc(db, 'settings', 'officialProfile'));
+              if (oSnap.exists()) {
+                sellerPhoto = oSnap.data().photoURL || oSnap.data().avatarUrl || '';
+                if (sellerPhoto) try { sessionStorage.setItem('officialProfilePhoto', sellerPhoto); } catch (_) {}
+              }
+            }
+          } catch (_) {}
         } else {
           const uSnap = await getDoc(doc(db, 'users', sellerId));
           if (uSnap.exists()) {
@@ -84,14 +95,22 @@
             <div class="card-body d-flex align-items-center gap-3 flex-wrap">
               ${avatarBlock}
               <div>
-                <h3 class="mb-1">${sellerName}</h3>
+                <h3 class="mb-1 d-flex align-items-center gap-2 flex-wrap">${sellerName}${sellerId==='official' ? ' <span class="badge bg-primary"><i class="fas fa-check-circle me-1"></i>موثّق</span>' : ''}</h3>
                 ${sellerBio ? `<p class="text-muted mb-0 small">${sellerBio}</p>` : ''}
                 <p class="text-muted mb-0 small"><i class="fas fa-store me-1"></i>صفحة التاجر</p>
               </div>
             </div>
           </div>`;
 
-        const snap = await getDocs(query(collection(db, 'projects'), where('sellerId', '==', sellerId), limit(60)));
+        let snap;
+        const sk = 'sellerProds:' + sellerId;
+        const sc = window.localCache?.get(sk);
+        if (Array.isArray(sc) && sc.length) {
+          snap = { docs: sc.map(x => ({ id: x.id, data: () => x.data })) };
+        } else {
+          snap = await getDocs(query(collection(db, 'projects'), where('sellerId', '==', sellerId), limit(60)));
+          try { window.localCache?.set(sk, snap.docs.map(d => ({ id: d.id, data: d.data() }))); } catch(_){}
+        }
         const prods = snap.docs.filter(d => {
           const p = d.data();
           return !p.status || p.status === 'active';

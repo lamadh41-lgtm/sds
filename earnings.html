@@ -145,16 +145,21 @@
       return true;
     }
 
+    function rateOf(p) {
+      const r = parseFloat(p.commissionPercent);
+      return (isFinite(r) && r >= 0) ? r : 5;
+    }
     function calcForPurchases(purchases) {
-      let gross = 0, buyers = 0;
+      let gross = 0, net = 0, buyers = 0;
       purchases.forEach(p => {
-        const price = parseFloat(p.price) || 0;
+        const price = parseFloat(p.price || p.amount) || 0;
         if (price > 0) {
           gross += price;
           buyers++;
+          if (p.sellerNet != null && isFinite(parseFloat(p.sellerNet))) net += parseFloat(p.sellerNet);
+          else net += price * (1 - rateOf(p) / 100);
         }
       });
-      const net = gross * 0.95;
       return { gross, net, buyers };
     }
 
@@ -256,15 +261,18 @@
       }
       list.innerHTML = '<h6 class="mb-2">سجل عمليات الشراء</h6>' + prods.map(p => {
         const dt = p._date ? p._date.toLocaleDateString('ar-EG') : '-';
-        const amt = (parseFloat(p.price || p.amount)||0).toFixed(2);
+        const amt = parseFloat(p.price || p.amount)||0;
+        const rate = rateOf(p);
+        const netOne = (p.sellerNet != null && isFinite(parseFloat(p.sellerNet))) ? parseFloat(p.sellerNet) : amt * (1 - rate/100);
         const payout = p.payoutSent
           ? '<span class="badge bg-success">تم إرسال أرباحك لحسابك المالي</span>'
           : '<span class="badge bg-warning text-dark">لم يتم إرسال الأرباح لحسابك البنكي بعد</span>';
         return `<div class="border rounded p-2 mb-2">
           <div class="d-flex justify-content-between flex-wrap gap-1">
             <span>${p.buyerName || p.buyerEmail || 'مشتري'}</span>
-            <span>${amt} ج.م — ${dt}</span>
+            <span>${amt.toFixed(2)} ج.م — ${dt}</span>
           </div>
+          <div class="small mt-1">عمولة وقت الشراء: <strong>${rate}%</strong> | صافي لك: <strong class="text-success">${netOne.toFixed(2)} ج.م</strong></div>
           <div class="mt-1">${payout}</div>
           <div class="small text-muted">ID العملية: ${p.id || '-'}</div>
         </div>`;

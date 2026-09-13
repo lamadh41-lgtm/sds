@@ -205,7 +205,20 @@
       grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
       try {
-        // قراءة 10 مشاريع نشطة فقط لكل صفحة (توفير قراءات)
+        // كاش الصفحة الأولى محلياً — صفر قراءات عند الرجوع
+        let pageDocs = null;
+        const useCacheFirst = (direction === 'first' || direction === 'prev' && projectsPageIndex <= 1);
+        if (direction === 'first') {
+          const cachedPage = window.localCache?.get('projects:page:0');
+          if (Array.isArray(cachedPage) && cachedPage.length) {
+            pageDocs = cachedPage.map(x => ({ id: x.id, data: () => x.data }));
+            projectsPageIndex = 0;
+            projectsPageStack = [null];
+          }
+        }
+
+        if (!pageDocs) {
+        // قراءة من الشبكة ثم حفظ محلي
         let qBase;
         try {
           if (direction === 'next' && projectsCursor) {
@@ -229,11 +242,18 @@
         try {
           snap = await getDocs(qBase);
         } catch (idxErr) {
-          // بدون orderBy لو الـ index ناقص
           snap = await getDocs(query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE)));
         }
 
-        const pageDocs = snap.docs.filter(d => d.data().status === 'active');
+        pageDocs = snap.docs.filter(d => d.data().status === 'active');
+        // احفظ الصفحة الأولى محلياً
+        if (projectsPageIndex === 0 || direction === 'first') {
+          try {
+            window.localCache?.set('projects:page:0', pageDocs.map(d => ({ id: d.id, data: d.data() })));
+            pageDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
+          } catch(_){}
+        }
+        }
         if (currentUser) {
           pageDocs.forEach(d => {
             if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);

@@ -4,6 +4,7 @@ import {
   updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp, onSnapshot,
   ref, uploadBytes, getDownloadURL
 } from './firebase.js';
+import { cacheGet, cacheSet, cachedFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, toPlain } from './localCache.js';
 
 // ===== Helpers =====
 function showToast(message, type = 'success') {
@@ -312,7 +313,7 @@ function bindAuthForms() {
       await updateProfile(cred.user, { displayName: name });
       await setDoc(doc(db, 'users', cred.user.uid), {
         name, email, phone, createdAt: serverTimestamp(),
-        banned: false, deleted: false, role: 'user', bio: '', balance: 0
+        banned: false, deleted: false, role: 'user', bio: '', balance: 0, commissionPercent: 5
       });
       showToast('تم إنشاء الحساب بنجاح! مرحباً بك');
       bootstrap.Modal.getInstance(document.getElementById('registerModal'))?.hide();
@@ -356,8 +357,15 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     // Load user data from Firestore
     const userRef = doc(db, 'users', user.uid);
-    const snap = await getDoc(userRef);
-    currentUserData = snap.exists() ? snap.data() : { name: user.displayName || 'مستخدم', email: user.email };
+    // كاش محلي لبيانات المستخدم — قراءة شبكة مرة واحدة فقط
+    const cachedUser = cacheGet(cacheUserKey(user.uid));
+    if (cachedUser && typeof cachedUser === 'object') {
+      currentUserData = cachedUser;
+    } else {
+      const snap = await getDoc(userRef);
+      currentUserData = snap.exists() ? snap.data() : { name: user.displayName || 'مستخدم', email: user.email };
+      cacheSet(cacheUserKey(user.uid), currentUserData);
+    }
 
     // Check if banned
     if (currentUserData.banned) {
@@ -588,6 +596,9 @@ async function saveProjectWithStatus(status, successMsg) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
+    // أبطل كاش قائمة المشاريع عشان الزيارة الجاية تجيب الجديد (قراءة واحدة)
+    try { cacheRemovePrefix && cacheRemovePrefix('projects:'); } catch(_){}
+    try { window.localCache?.removePrefix('projects:'); } catch(_){}
     showToast(successMsg);
     bootstrap.Modal.getInstance(document.getElementById('uploadModal'))?.hide();
     document.getElementById('uploadForm')?.reset();
@@ -627,10 +638,23 @@ async function loadUserNotifications(uid) {
   const badge = document.getElementById('notifBadge');
   if (!listEl) return;
   try {
-    // قراءة إشعارات المستخدم فقط (مش كل الإشعارات)
-    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
-    const notifs = snap.docs
-      .sort((a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0))
+    const nKey = cacheNotifsKey(uid);
+    let notifs;
+    const cached = cacheGet(nKey);
+    if (Array.isArray(cached) && cached.length >= 0 && cached.__fromCache !== false) {
+      // من المحلي
+      notifs = cached.map(x => ({ id: x.id, data: () => x.data }));
+    } else {
+      const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
+      const plain = snap.docs
+        .map(d => ({ id: d.id, data: d.data() }))
+        .sort((a, b) => (b.data.createdAt?.toMillis?.() || b.data.createdAt?.__ts || 0) - (a.data.createdAt?.toMillis?.() || a.data.createdAt?.__ts || 0))
+        .slice(0, 30);
+      cacheSet(nKey, plain);
+      notifs = plain.map(x => ({ id: x.id, data: () => x.data }));
+    }
+    notifs = notifs
+      .sort((a, b) => (b.data().createdAt?.toMillis?.() || b.data().createdAt?.__ts || 0) - (a.data().createdAt?.toMillis?.() || a.data().createdAt?.__ts || 0))
       .slice(0, 30);
 
     const unread = notifs.filter(d => !d.data().read).length;
@@ -690,14 +714,21 @@ async function loadUserNotifications(uid) {
 
 async function markNotificationsRead(uid) {
   try {
-    const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(30)));
-    const unread = snap.docs.filter(d => !d.data().read);
+    const nKey = cacheNotifsKey(uid);
+    let plain = cacheGet(nKey);
+    if (!Array.isArray(plain)) {
+      // أول مرة فقط نقرأ من الشبكة
+      const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(30)));
+      plain = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+    }
+    const unread = plain.filter(x => x.data && !x.data.read);
     if (unread.length) {
-      await Promise.all(unread.map(d => updateDoc(doc(db, 'notifications', d.id), { read: true })));
+      await Promise.all(unread.map(x => updateDoc(doc(db, 'notifications', x.id), { read: true })));
+      plain = plain.map(x => ({ ...x, data: { ...x.data, read: true } }));
+      cacheSet(nKey, plain);
     }
     const badge = document.getElementById('notifBadge');
     if (badge) badge.classList.add('d-none');
-    // تحديث الواجهة محلياً بدون قراءة ثانية
     document.querySelectorAll('#notifList .notif-item').forEach(el => {
       el.classList.remove('bg-warning', 'bg-opacity-10');
     });
@@ -740,10 +771,18 @@ function renderSupportSnap(snap) {
 function startSupportListener(user) {
   stopSupportListener();
   if (!user) return;
-  const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid));
-  // يشتغل فقط وأنا فاتح لوحة الدعم — مش في الخلفية
+  // اعرض الكاش فوراً بدون قراءة
+  const cKey = cacheChatsKey(user.uid);
+  const cached = cacheGet(cKey);
+  if (Array.isArray(cached) && supportOpen) {
+    renderSupportSnap({ docs: cached.map(x => ({ id: x.id, data: () => x.data })) });
+  }
+  const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(80));
+  // listener فقط أثناء فتح اللوحة — ويحدّث الكاش
   supportUnsub = onSnapshot(q, (snap) => {
     if (!supportOpen) return;
+    const plain = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+    cacheSet(cKey, plain);
     renderSupportSnap(snap);
   }, () => {});
 }
@@ -859,17 +898,12 @@ async function markSupportRead(uid) {
 // ===== News Bar (dismiss محلي — يظهر تاني لو الخبر اتغيّر) =====
 async function loadNewsBar() {
   try {
-    // كاش جلسة: قراءة واحدة لكل تبويب بدل كل تنقل بين الصفحات
-    let data = null;
-    try {
-      const cached = sessionStorage.getItem('newsBarCache');
-      if (cached) data = JSON.parse(cached);
-    } catch (_) {}
+    let data = cacheGet(cacheNewsKey());
     if (!data) {
       const snap = await getDoc(doc(db, 'settings', 'news'));
       if (!snap.exists()) return;
-      data = snap.data();
-      try { sessionStorage.setItem('newsBarCache', JSON.stringify({ active: !!data.active, text: data.text || '' })); } catch (_) {}
+      data = { active: !!snap.data().active, text: snap.data().text || '' };
+      cacheSet(cacheNewsKey(), data);
     }
     if (!data.active || !data.text) {
       document.getElementById('newsBar')?.remove();

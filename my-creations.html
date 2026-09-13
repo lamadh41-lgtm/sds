@@ -169,7 +169,15 @@
       const list = document.getElementById('creationsList');
       list.innerHTML = '<div class="col-12 text-center py-4"><div class="spinner-border text-primary"></div></div>';
       try {
-        const snap = await getDocs(query(collection(db, 'projects'), where('sellerId', '==', currentUser.uid), limit(80)));
+        let snap;
+        const mk = 'myProjects:' + currentUser.uid;
+        const mc = window.localCache?.get(mk);
+        if (Array.isArray(mc) && mc.length) {
+          snap = { docs: mc.map(x => ({ id: x.id, data: () => x.data })) };
+        } else {
+          snap = await getDocs(query(collection(db, 'projects'), where('sellerId', '==', currentUser.uid), limit(80)));
+          try { window.localCache?.set(mk, snap.docs.map(d => ({ id: d.id, data: d.data() }))); } catch(_){}
+        }
         allMyProjects = snap.docs
           .filter(d => d.data().status !== 'deleted')
           .map(d => ({ id: d.id, ...d.data() }))

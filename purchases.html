@@ -78,7 +78,17 @@
         return;
       }
 
-      const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
+      let allBuyDocs;
+      const pKey = 'purchases:' + user.uid;
+      const pCached = window.localCache?.get(pKey);
+      if (Array.isArray(pCached) && pCached.length) {
+        allBuyDocs = pCached;
+      } else {
+        const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
+        allBuyDocs = allBuy.docs.map(d => ({ id: d.id, data: d.data() }));
+        try { window.localCache?.set(pKey, allBuyDocs); } catch(_){}
+      }
+      const allBuy = { docs: allBuyDocs.map(x => ({ id: x.id, data: () => x.data })) };
       const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
       const pendingDocs = allBuy.docs.filter(d => ['pending', 'rejected'].includes(d.data().status));
       const receivedEl = document.getElementById('receivedList');

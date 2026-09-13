@@ -139,8 +139,12 @@
         return;
       }
       currentUser = user;
-      const snap = await getDoc(doc(db, 'users', user.uid));
-      const data = snap.exists() ? snap.data() : {};
+      let data = window.localCache?.get('user:' + user.uid);
+      if (!data) {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        data = snap.exists() ? snap.data() : {};
+        try { window.localCache?.set('user:' + user.uid, data); } catch(_){}
+      }
       originalData = { ...data, email: user.email };
       currentPhotoURL = data.photoURL || data.avatarUrl || '';
 
@@ -212,6 +216,7 @@
         originalData.photoURL = photoURL;
         originalData.avatarUrl = photoURL;
         setAvatarUI(originalData.name || currentUser.displayName, photoURL);
+        try { window.localCache?.set('user:' + currentUser.uid, { ...originalData, photoURL, avatarUrl: photoURL }); } catch(_){}
         showToast('تم رفع صورة الملف الشخصي بنجاح');
       } catch (err) {
         console.error(err);
@@ -273,6 +278,7 @@
         await updateProfile(currentUser, { displayName: newName });
 
         originalData = { ...originalData, name: newName, phone: newPhone, bio: newBio };
+        try { window.localCache?.set('user:' + currentUser.uid, originalData); } catch(_){}
         document.getElementById('profileName').textContent = newName;
         document.getElementById('profileAvatar').textContent = getInitials(newName);
 

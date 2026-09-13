@@ -154,12 +154,21 @@
         return;
       }
       try {
-        const snap = await getDoc(doc(db, 'projects', projectId));
+        let projectDataCached = (window.localCache && window.localCache.get('product:' + projectId)) || null;
+        let snap = null;
+        if (projectDataCached && projectDataCached.id) {
+          projectData = projectDataCached;
+          renderProduct();
+          // لا قراءة — من المحلي
+          return;
+        }
+        snap = await getDoc(doc(db, 'projects', projectId));
         if (!snap.exists()) {
           document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">المشروع غير موجود أو تم حذفه</div>';
           return;
         }
         projectData = { id: snap.id, ...snap.data() };
+        try { window.localCache?.set('product:' + projectId, projectData); } catch(_){}
         renderProduct();
       } catch (err) {
         console.error(err);
@@ -209,16 +218,38 @@
 
     async function resolveSellerPhoto(p) {
       if (p.sellerPhoto) return p.sellerPhoto;
-      if (!p.sellerId || p.sellerId === 'official') return '';
-      // قراءة واحدة فقط عند غياب الصورة المنسوخة (منتجات قديمة) — لا تُكرّر
+      if (!p.sellerId) return '';
       try {
+        if (p.sellerId === 'official' || p.isOfficial) {
+          try {
+            const cached = sessionStorage.getItem('officialProfilePhoto');
+            if (cached) {
+              p.sellerPhoto = cached;
+              p.sellerName = 'محرك مصران';
+              return cached;
+            }
+          } catch (_) {}
+          const oSnap = await getDoc(doc(db, 'settings', 'officialProfile'));
+          if (oSnap.exists()) {
+            const o = oSnap.data();
+            const url = o.photoURL || o.avatarUrl || '';
+            if (url) {
+              p.sellerPhoto = url;
+              try { sessionStorage.setItem('officialProfilePhoto', url); } catch (_) {}
+              updateDoc(doc(db, 'projects', projectId), { sellerPhoto: url, sellerName: 'محرك مصران' }).catch(() => {});
+            }
+            p.sellerName = 'محرك مصران';
+            return url;
+          }
+          p.sellerName = 'محرك مصران';
+          return '';
+        }
         const uSnap = await getDoc(doc(db, 'users', p.sellerId));
         if (uSnap.exists()) {
           const u = uSnap.data();
           const url = u.photoURL || u.avatarUrl || '';
           if (url) {
-            p.sellerPhoto = url; // cache محلي في نفس الجلسة
-            // تحديث خلفي خفيف للمنتج بدون await (توفير reads لاحقاً)
+            p.sellerPhoto = url;
             updateDoc(doc(db, 'projects', projectId), { sellerPhoto: url }).catch(() => {});
           }
           return url;
@@ -248,8 +279,11 @@
         priceHtml = `<span class="badge bg-success fs-5">${p.price} ج.م</span>`;
       }
 
-      const verified = p.isOfficial 
-        ? `<span class="badge-verified"><i class="fas fa-check-circle"></i> المحرك (رسمي)</span>` 
+      if (p.isOfficial || p.sellerId === 'official') {
+        p.sellerName = 'محرك مصران';
+      }
+      const verified = (p.isOfficial || p.sellerId === 'official')
+        ? `<span class="badge-verified"><i class="fas fa-check-circle"></i> موثّق</span>`
         : '';
 
       let actionBtn = '';
@@ -290,7 +324,7 @@
             <p class="text-muted d-flex align-items-center gap-2 flex-wrap">بواسطة:
               <a href="seller.html?id=${p.sellerId || ''}" class="fw-semibold text-decoration-none d-inline-flex align-items-center gap-2" style="color:#d4af37">
                 ${p.sellerPhoto ? `<img src="${p.sellerPhoto}" alt="" class="rounded-circle" style="width:28px;height:28px;object-fit:cover;border:2px solid #d4af37;">` : `<span class="d-inline-flex align-items-center justify-content-center rounded-circle" style="width:28px;height:28px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:0.7rem;font-weight:700;">${(p.sellerName||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase()}</span>`}
-                ${p.sellerName || 'بائع'}
+                ${p.sellerName || 'بائع'}${(p.isOfficial || p.sellerId === 'official') ? ' <span class="badge-verified" style="font-size:0.7rem;"><i class="fas fa-check-circle"></i></span>' : ''}
               </a>
             </p>
             <hr>
@@ -546,7 +580,28 @@
           return;
         }
         const p = projectData;
+        // عمولة البائع وقت الشراء فقط (لا تُعاد لاحقاً)
+        let commissionPercent = 5;
+        if (p.sellerId && p.sellerId !== 'official' && !p.isOfficial) {
+          try {
+            let sellerData = window.localCache?.get('user:' + p.sellerId);
+            if (!sellerData) {
+              const sSnap = await getDoc(doc(db, 'users', p.sellerId));
+              if (sSnap.exists()) {
+                sellerData = sSnap.data();
+                try { window.localCache?.set('user:' + p.sellerId, sellerData); } catch(_){}
+              }
+            }
+            const r = parseFloat(sellerData?.commissionPercent);
+            if (isFinite(r) && r >= 0 && r <= 100) commissionPercent = r;
+          } catch(_){}
+        } else {
+          commissionPercent = 0; // منتجات المحرك الرسمية بدون عمولة من بائع
+        }
+        const commissionAmount = price * (commissionPercent / 100);
+        const sellerNet = price - commissionAmount;
         await updateDoc(uRef, { balance: bal - price });
+        try { window.localCache?.set('user:' + currentUser.uid, { ...(window.localCache?.get('user:'+currentUser.uid)||{}), balance: bal - price }); } catch(_){}
         await addDoc(collection(db, 'purchases'), {
           projectId,
           projectTitle: p.title,
@@ -563,6 +618,9 @@
           paymentName: p.paymentName || '',
           amount: price,
           price: price,
+          commissionPercent,
+          commissionAmount,
+          sellerNet,
           status: 'approved',
           payoutSent: false,
           paidFromBalance: true,
