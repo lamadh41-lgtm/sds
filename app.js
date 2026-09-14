@@ -1,3 +1,11 @@
+/**
+ * ============================================================
+ * قاعدة استهلاك إلزامية (انظر PERFORMANCE_RULES.md):
+ * - لا قراءات/listeners على شيء المستخدم لم يفتحه أو يتفاعل معه.
+ * - كاش محلي + limit + إيقاف المستمع عند الإغلاق.
+ * - أي ميزة جديدة تُبنى بنفس الأسلوب وإلا تُرفض.
+ * ============================================================
+ */
 import { 
   auth, db, storage,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged,
@@ -7,7 +15,28 @@ import {
 import { cacheGet, cacheSet, cachedFetch, softFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, cacheRemove, toPlain } from './localCache.js';
 
 // ===== 20 فلتر / قسم للأصول =====
-const PROJECT_CATEGORIES = ['برمجة وسكربتات', 'شخصيات وأفاتار', 'أسلحة وقتال', 'مركبات', 'بيئة وديكور', 'واجهات UI', 'تأثيرات VFX', 'أصوات وموسيقى', 'حركات Animation', 'قوالب مشاريع', 'تعريب وأدوات عربية', 'ألعاب كاملة', 'شبكات ومتعدد لاعبين', 'ذكاء اصطناعي', 'إضاءة ورندر', 'خامات ومواد Materials', 'أدوات محرر Editor', 'تعليم وشروحات', 'إضافات ومنصات', 'أخرى'];
+const PROJECT_CATEGORIES = [
+  'شخصيات Characters',
+  'أسلحة Weapons',
+  'مركبات Vehicles',
+  'مباني وبيوت Buildings',
+  'أثاث وديكور Props',
+  'خرائط Maps',
+  'بيئة وتضاريس Environment',
+  'وحوش وأعداء Creatures',
+  'حركات Animation',
+  'تأثيرات VFX',
+  'أصوات وموسيقى Audio',
+  'واجهات UI / HUD',
+  'قوائم Main Menu',
+  'سكربتات وأدوات Scripts',
+  'أنظمة لعب Systems',
+  'خامات Materials',
+  'إضاءة ورندر Lighting',
+  'شبكات ومتعدد لاعبين',
+  'حزم كاملة Packs',
+  'أخرى'
+];
 if (typeof window !== 'undefined') window.PROJECT_CATEGORIES = PROJECT_CATEGORIES;
 
 function getEffectivePrice(p) {
@@ -911,57 +940,12 @@ async function deleteAllNotifications(uid) {
 let supportOpen = false;
 let supportUnsub = null;
 
-function stopSupportListener() {
-  if (supportUnsub) {
-    try { supportUnsub(); } catch (_) {}
-    supportUnsub = null;
-  }
-}
-
-function renderSupportSnap(snap) {
-  const box = document.getElementById('supportChatBox');
-  if (!box) return;
-  const docs = snap.docs.slice().sort((a, b) => {
-    return (a.data().createdAt?.toMillis?.() || 0) - (b.data().createdAt?.toMillis?.() || 0);
-  });
-  if (docs.length === 0) {
-    box.innerHTML = '<div class="text-center text-muted small py-3">ابدأ المحادثة بإرسال رسالة</div>';
-    return;
-  }
-  box.innerHTML = docs.map(d => {
-    const m = d.data();
-    const isMe = m.sender === 'user';
-    const time = m.createdAt?.toDate?.().toLocaleString('ar-EG') || '';
-    return `<div class="chat-message ${isMe ? 'me' : ''}">
-      <div class="chat-bubble">${m.text || ''}</div>
-      <small class="text-muted chat-time">${time}</small>
-    </div>`;
-  }).join('');
-  box.scrollTop = box.scrollHeight;
-}
-
-function startSupportListener(user) {
-  stopSupportListener();
-  if (!user) return;
-  // اعرض الكاش فوراً بدون قراءة
-  const cKey = cacheChatsKey(user.uid);
-  const cached = cacheGet(cKey);
-  if (Array.isArray(cached) && supportOpen) {
-    renderSupportSnap({ docs: cached.map(x => ({ id: x.id, data: () => x.data })) });
-  }
-  const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(80));
-  // listener فقط أثناء فتح اللوحة — ويحدّث الكاش
-  supportUnsub = onSnapshot(q, (snap) => {
-    if (!supportOpen) return;
-    const plain = snap.docs.map(d => ({ id: d.id, data: d.data() }));
-    cacheSet(cKey, plain);
-    renderSupportSnap(snap);
-  }, () => {});
-}
-
 function initSupportWidget(user) {
   stopSupportListener();
   supportOpen = false;
+
+  // إزالة أي واجهة دعم قديمة كبيرة
+  document.querySelectorAll('.support-toggle-btn:not(.support-fab-circle)').forEach(() => {});
 
   let fab = document.getElementById('supportFab');
   if (!fab) {
@@ -970,7 +954,7 @@ function initSupportWidget(user) {
         <div id="supportPanel" class="support-panel">
           <div class="support-panel-header">
             <span><i class="fas fa-headset me-1"></i> الدعم</span>
-            <button type="button" id="supportCloseBtn" class="btn btn-sm btn-light py-0 px-2">&times;</button>
+            <button type="button" id="supportCloseBtn" class="btn btn-sm btn-light py-0 px-2" aria-label="إغلاق">&times;</button>
           </div>
           <div id="supportChatBox" class="support-chat-box">
             <div class="text-center text-muted small py-3">اضغط لفتح المحادثة</div>
@@ -980,14 +964,40 @@ function initSupportWidget(user) {
             <button class="btn btn-sm btn-primary" id="supportSendBtn"><i class="fas fa-paper-plane"></i></button>
           </div>
         </div>
-        <button type="button" id="supportToggleBtn" class="support-toggle-btn">
-          <i class="fas fa-headset me-1"></i> الدعم
-          <span id="supportBadge" class="support-badge d-none">0</span>
+        <button type="button" id="supportToggleBtn" class="support-fab-circle" title="الدعم">
+          <i class="fas fa-headset"></i>
+          <span id="supportBadge" class="support-badge-dot d-none"></span>
         </button>
       </div>
     `);
     fab = document.getElementById('supportFab');
+  } else {
+    // ترقية الزر لو قديم
+    const btn = document.getElementById('supportToggleBtn');
+    if (btn && !btn.classList.contains('support-fab-circle')) {
+      btn.className = 'support-fab-circle';
+      btn.innerHTML = '<i class="fas fa-headset"></i><span id="supportBadge" class="support-badge-dot d-none"></span>';
+      btn.title = 'الدعم';
+    }
   }
+
+  // شارة الدعم في الشريط العلوي
+  document.querySelectorAll('a.nav-link[href="support.html"], a.nav-link[href*="support"]').forEach(a => {
+    if (a.dataset.supportNavReady) return;
+    a.dataset.supportNavReady = '1';
+    if (!a.querySelector('.fa-headset')) {
+      a.insertAdjacentHTML('afterbegin', '<i class="fas fa-headset me-1"></i>');
+    }
+    if (!a.querySelector('#navSupportBadge') && !a.querySelector('.nav-support-badge')) {
+      a.insertAdjacentHTML('beforeend', ' <span class="nav-support-badge support-badge-dot d-none" id="navSupportBadge"></span>');
+    }
+    a.addEventListener('click', (e) => {
+      // لو الصفحة الحالية فيها ويدجت — افتح اللوحة بدل التنقل إن أمكن
+      if (document.getElementById('supportPanel') && !a.getAttribute('href')?.includes('support.html')) {
+        e.preventDefault();
+      }
+    });
+  });
 
   const panel = document.getElementById('supportPanel');
   const toggleBtn = document.getElementById('supportToggleBtn');
@@ -995,11 +1005,24 @@ function initSupportWidget(user) {
   const inputRow = document.getElementById('supportInputRow');
   const box = document.getElementById('supportChatBox');
 
-  panel.classList.remove('open');
+  panel?.classList.remove('open');
   if (inputRow) inputRow.style.display = user ? '' : 'none';
   if (box) {
     box.innerHTML = `<div class="text-center text-muted small py-3">${user ? 'اضغط لفتح المحادثة' : 'سجّل دخول للتواصل مع الدعم'}</div>`;
   }
+
+  const clearSupportBadges = () => {
+    document.getElementById('supportBadge')?.classList.add('d-none');
+    document.getElementById('navSupportBadge')?.classList.add('d-none');
+    document.querySelectorAll('.nav-support-badge').forEach(el => el.classList.add('d-none'));
+  };
+  const showSupportBadges = () => {
+    document.getElementById('supportBadge')?.classList.remove('d-none');
+    document.getElementById('navSupportBadge')?.classList.remove('d-none');
+    document.querySelectorAll('.nav-support-badge').forEach(el => el.classList.remove('d-none'));
+  };
+  window._showSupportBadges = showSupportBadges;
+  window._clearSupportBadges = clearSupportBadges;
 
   const openPanel = () => {
     if (!user) {
@@ -1008,9 +1031,9 @@ function initSupportWidget(user) {
     }
     supportOpen = true;
     panel.classList.add('open');
-    // بدء الاستماع فقط عند الفتح — لا قراءات قبل ذلك
     startSupportListener(user);
     markSupportRead(user.uid);
+    clearSupportBadges();
   };
   const closePanel = () => {
     supportOpen = false;
@@ -1018,25 +1041,97 @@ function initSupportWidget(user) {
     stopSupportListener();
   };
 
-  // استبدال المستمعين لتجنب التكرار عند إعادة النداء
-  toggleBtn.onclick = () => { if (supportOpen) closePanel(); else openPanel(); };
-  closeBtn.onclick = closePanel;
+  if (toggleBtn) toggleBtn.onclick = () => { if (supportOpen) closePanel(); else openPanel(); };
+  if (closeBtn) closeBtn.onclick = closePanel;
 
+  document.getElementById('supportSendBtn')?.addEventListener('click', () => sendSupportMsg(user));
+  document.getElementById('supportInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendSupportMsg(user);
+  });
+
+  // استماع خفيف للشارات فقط (بدون فتح اللوحة) — عند تسجيل الدخول
   if (user) {
-    document.getElementById('supportSendBtn').onclick = () => sendSupportMsg(user);
-    document.getElementById('supportInput').onkeydown = (e) => {
-      if (e.key === 'Enter') sendSupportMsg(user);
-    };
+    startSupportBadgeWatcher(user);
   }
 }
 
-function loadSupportMessages(user) {
-  // توافق قديم: تحميل مرة واحدة فقط لو احتيج (بدون listener دائم)
+let supportBadgeUnsub = null;
+function startSupportBadgeWatcher(user) {
+  if (supportBadgeUnsub) { try { supportBadgeUnsub(); } catch(_){} supportBadgeUnsub = null; }
+  if (!user) return;
+  try {
+    const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(40));
+    supportBadgeUnsub = onSnapshot(q, (snap) => {
+      if (supportOpen) {
+        window._clearSupportBadges?.();
+        return;
+      }
+      const hasUnread = snap.docs.some(d => d.data().sender === 'admin' && !d.data().read);
+      if (hasUnread) window._showSupportBadges?.();
+      else window._clearSupportBadges?.();
+    }, () => {});
+  } catch (_) {}
+}
+
+function renderSupportSnap(snap) {
+  const box = document.getElementById('supportChatBox');
+  if (!box) return;
+  const docs = snap.docs.slice().sort((a, b) => {
+    const t1 = a.data().createdAt?.toMillis?.() || 0;
+    const t2 = b.data().createdAt?.toMillis?.() || 0;
+    return t1 - t2;
+  });
+  if (!docs.length) {
+    box.innerHTML = '<div class="text-center text-muted small py-3">لا رسائل بعد — اكتب رسالتك</div>';
+    return;
+  }
+  box.innerHTML = docs.map(d => {
+    const m = d.data();
+    const mine = m.sender === 'user';
+    const time = m.createdAt?.toDate?.().toLocaleString?.('ar-EG') || '';
+    return `<div class="chat-message ${mine ? 'me' : ''}"><div class="chat-bubble">${m.text || ''}</div><small class="text-muted" style="font-size:0.7rem;">${time}</small></div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+  if (supportOpen) window._clearSupportBadges?.();
+}
+
+function startSupportListener(user) {
+  stopSupportListener();
   const box = document.getElementById('supportChatBox');
   if (!box || !user) return;
-  getDocs(query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(50))).then(snap => {
-    renderSupportSnap(snap);
-  }).catch(e => { box.innerHTML = `<div class="text-danger small">${e.message}</div>`; });
+  const cKey = cacheChatsKey(user.uid);
+  const cached = cacheGet(cKey);
+  if (Array.isArray(cached) && cached.length) {
+    renderSupportSnap({ docs: cached.map(x => ({ id: x.id, data: () => x.data })) });
+  } else {
+    box.innerHTML = '<div class="text-center text-muted small py-2">جاري التحميل...</div>';
+  }
+  try {
+    const q = query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(50));
+    window._supportChatUnsub = onSnapshot(q, (snap) => {
+      if (!supportOpen) return;
+      cacheSet(cKey, snap.docs.map(d => ({ id: d.id, data: d.data() })));
+      renderSupportSnap(snap);
+      markSupportRead(user.uid);
+    }, (err) => {
+      box.innerHTML = `<div class="text-danger small">${err.message}</div>`;
+    });
+  } catch (e) {
+    getDocs(query(collection(db, 'supportChats'), where('userId', '==', user.uid), limit(50))).then(snap => {
+      renderSupportSnap(snap);
+    }).catch(err => { box.innerHTML = `<div class="text-danger small">${err.message}</div>`; });
+  }
+}
+
+function stopSupportListener() {
+  if (window._supportChatUnsub) {
+    try { window._supportChatUnsub(); } catch (_) {}
+    window._supportChatUnsub = null;
+  }
+  if (supportUnsub) {
+    try { supportUnsub(); } catch (_) {}
+    supportUnsub = null;
+  }
 }
 
 async function sendSupportMsg(user) {
@@ -1063,7 +1158,9 @@ async function markSupportRead(uid) {
     if (unread.length) {
       await Promise.all(unread.map(d => updateDoc(doc(db, 'supportChats', d.id), { read: true })));
     }
+    window._clearSupportBadges?.();
     document.getElementById('supportBadge')?.classList.add('d-none');
+    document.getElementById('navSupportBadge')?.classList.add('d-none');
   } catch (e) {}
 }
 
