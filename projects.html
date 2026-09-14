@@ -348,6 +348,61 @@
         }
       });
     });
+    window._rerenderProjectsFiltered = function() {
+      const grid = document.getElementById('projectsGrid');
+      if (!grid || !window._lastProjectsPageDocs) return;
+      let pageDocs = applyClientFilters(window._lastProjectsPageDocs);
+      if (currentUser) {
+        pageDocs.forEach(d => {
+          if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
+        });
+      }
+      if (pageDocs.length === 0) {
+        grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد نتائج مطابقة للبحث أو الفلاتر.</p></div>';
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+      grid.innerHTML = pageDocs.map(d => {
+        const p = d.data();
+        const priceHtml = window.priceHtmlForProduct
+          ? window.priceHtmlForProduct(p)
+          : (p.isFree || (window.getEffectivePrice ? window.getEffectivePrice(p) : p.price) === 0
+            ? '<span class="project-price free">مجاني</span>'
+            : `<span class="project-price">${window.getEffectivePrice ? window.getEffectivePrice(p) : p.price} ج.م</span>`);
+        const verified = p.isOfficial
+          ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>'
+          : '';
+        let ownerBadge = '';
+        if (myOwnedIds.has(d.id)) ownerBadge = '<span class="thumb-badge thumb-badge-mine">إبداعاتي</span>';
+        else if (myPurchasedIds.has(d.id)) ownerBadge = '<span class="thumb-badge thumb-badge-bought">مشترياتي</span>';
+        return `
+          <div class="col-md-4 col-sm-6">
+            <div class="project-card h-100">
+              <a href="product.html?id=${d.id}" class="text-decoration-none position-relative d-block">
+                <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                ${ownerBadge}
+              </a>
+              <div class="project-body">
+                <a href="product.html?id=${d.id}" class="text-decoration-none text-dark">
+                  <div class="project-title">${p.title} ${verified}</div>
+                  <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
+                </a>
+                <div class="d-flex justify-content-between align-items-center mt-2">
+                  ${priceHtml}
+                  <div class="d-flex align-items-center gap-1">
+                    <a href="seller.html?id=${p.sellerId || ''}" class="text-decoration-none small text-muted d-flex align-items-center gap-1">
+                      ${p.sellerPhoto ? `<img src="${p.sellerPhoto}" class="rounded-circle" style="width:22px;height:22px;object-fit:cover;">` : `<i class="fas fa-store"></i>`}
+                      ${p.sellerName || 'بائع'}
+                    </a>
+                    <a href="product.html?id=${d.id}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="مشاركة" onclick="event.stopPropagation();"><i class="fas fa-share-alt"></i></a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    };
+
     fillCategoriesBox();
     fillFilterCategorySelect();
     document.getElementById('uploadModal')?.addEventListener('show.bs.modal', fillCategoriesBox);
@@ -388,42 +443,45 @@
         }
 
         if (!pageDocs) {
-        // قراءة من الشبكة ثم حفظ محلي
-        let qBase;
-        try {
-          if (direction === 'next' && projectsCursor) {
-            qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(projectsCursor), limit(PAGE_SIZE));
-          } else if (direction === 'prev' && projectsPageIndex > 0) {
-            projectsPageIndex--;
-            const cursor = projectsPageStack[projectsPageIndex];
-            qBase = cursor
-              ? query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE_SIZE))
-              : query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
-          } else {
-            projectsPageIndex = 0;
-            projectsPageStack = [null];
-            qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
-          }
-        } catch (e) {
-          qBase = query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE));
-        }
-
-        let snap;
-        try {
-          snap = await getDocs(qBase);
-        } catch (idxErr) {
-          snap = await getDocs(query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE)));
-        }
-
-        pageDocs = snap.docs.filter(d => d.data().status === 'active');
-        // احفظ الصفحة الأولى محلياً (قبل فلتر الواجهة)
-        if (projectsPageIndex === 0 || direction === 'first') {
+          // قراءة من الشبكة ثم حفظ محلي
+          let qBase;
           try {
-            const activeDocs = pageDocs.filter(d => (d.data().status || 'active') === 'active');
-            window.localCache?.set('projects:page:0', activeDocs.map(d => ({ id: d.id, data: d.data() })));
-            activeDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
-          } catch(_){}
+            if (direction === 'next' && projectsCursor) {
+              qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(projectsCursor), limit(PAGE_SIZE));
+            } else if (direction === 'prev' && projectsPageIndex > 0) {
+              projectsPageIndex--;
+              const cursor = projectsPageStack[projectsPageIndex];
+              qBase = cursor
+                ? query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE_SIZE))
+                : query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+            } else {
+              projectsPageIndex = 0;
+              projectsPageStack = [null];
+              qBase = query(collection(db, 'projects'), where('status', '==', 'active'), orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+            }
+          } catch (e) {
+            qBase = query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE));
+          }
+
+          let snap;
+          try {
+            snap = await getDocs(qBase);
+          } catch (idxErr) {
+            snap = await getDocs(query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE)));
+          }
+
+          pageDocs = snap.docs.filter(d => d.data().status === 'active');
+          // احفظ الصفحة الأولى محلياً (قبل فلتر الواجهة)
+          if (projectsPageIndex === 0 || direction === 'first') {
+            try {
+              const activeDocs = pageDocs.filter(d => (d.data().status || 'active') === 'active');
+              window.localCache?.set('projects:page:0', activeDocs.map(d => ({ id: d.id, data: d.data() })));
+              activeDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
+            } catch(_){}
+          }
         }
+
+        // دائماً: فلترة + عرض (سواء من كاش أو شبكة)
         window._lastProjectsPageDocs = pageDocs;
         pageDocs = applyClientFilters(pageDocs);
         if (currentUser) {
