@@ -34,53 +34,62 @@
       </button>
     </div>
 
-    <div id="projectsFilterBar" class="card border-0 shadow-sm mb-3">
-      <div class="card-body py-3">
-        <div class="row g-2 align-items-end">
-          <div class="col-md-4">
-            <label class="form-label small mb-1">بحث</label>
-            <input type="search" class="form-control" id="filterSearch" placeholder="ابحث عن سلاح، كود، كرسي...">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label small mb-1">فلتر / قسم</label>
-            <select class="form-select" id="filterCategory"><option value="">الكل</option></select>
-          </div>
-          <div class="col-md-2">
-            <label class="form-label small mb-1">السعر</label>
-            <select class="form-select" id="filterPriceMode">
-              <option value="">الكل</option>
-              <option value="free">مجاني</option>
-              <option value="paid">مدفوع</option>
-              <option value="range">من - إلى</option>
-            </select>
-          </div>
-          <div class="col-6 col-md-1 d-none" id="filterPriceMinWrap">
-            <label class="form-label small mb-1">من</label>
-            <input type="number" class="form-control" id="filterPriceMin" min="0" step="any">
-          </div>
-          <div class="col-6 col-md-1 d-none" id="filterPriceMaxWrap">
-            <label class="form-label small mb-1">إلى</label>
-            <input type="number" class="form-control" id="filterPriceMax" min="0" step="any">
-          </div>
-          <div class="col-md-2">
-            <div class="form-check mt-4">
-              <input class="form-check-input" type="checkbox" id="filterOnSale">
-              <label class="form-check-label" for="filterOnSale">عروض فقط</label>
+    <div class="row g-3">
+      <!-- الفلاتر على اليمين (RTL) -->
+      <div class="col-lg-3 col-md-4 order-lg-1">
+        <div id="projectsFilterBar" class="card border-0 shadow-sm sticky-top" style="top:80px;">
+          <div class="card-body">
+            <h6 class="mb-3"><i class="fas fa-filter me-1"></i>الفلاتر</h6>
+            <div class="mb-3">
+              <label class="form-label small mb-1">بحث</label>
+              <input type="search" class="form-control form-control-sm" id="filterSearch" placeholder="ابحث...">
             </div>
+            <div class="mb-3">
+              <label class="form-label small mb-1 fw-bold">الأقسام</label>
+              <div id="filterCategoryBox" class="d-flex flex-column gap-1" style="max-height:220px;overflow-y:auto;"></div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label small mb-1 fw-bold">السعر</label>
+              <div class="form-check">
+                <input class="form-check-input filter-price-mode" type="checkbox" value="free" id="filterFree">
+                <label class="form-check-label" for="filterFree">مجاني</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input filter-price-mode" type="checkbox" value="paid" id="filterPaid">
+                <label class="form-check-label" for="filterPaid">مدفوع</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="filterOnSale">
+                <label class="form-check-label" for="filterOnSale">عروض فقط</label>
+              </div>
+              <div class="row g-1 mt-2">
+                <div class="col-6">
+                  <input type="number" class="form-control form-control-sm" id="filterPriceMin" min="0" step="any" placeholder="من">
+                </div>
+                <div class="col-6">
+                  <input type="number" class="form-control form-control-sm" id="filterPriceMax" min="0" step="any" placeholder="إلى">
+                </div>
+              </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary w-100" id="filterResetBtn">إعادة ضبط</button>
           </div>
         </div>
       </div>
-    </div>
-    <div class="row g-4" id="projectsGrid">
-      <div class="col-12 text-center py-5">
-        <div class="spinner-border text-primary"></div>
-        <p class="mt-2">جاري تحميل المشاريع...</p>
+      <!-- شبكة المشاريع -->
+      <div class="col-lg-9 col-md-8">
+        <div class="row g-4" id="projectsGrid">
+          <div class="col-12 text-center py-5">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">جاري تحميل المشاريع...</p>
+          </div>
+        </div>
+        <nav class="mt-4">
+          <ul class="pagination justify-content-center" id="pagination"></ul>
+        </nav>
       </div>
     </div>
 
-    <nav class="mt-5">
-      <ul class="pagination justify-content-center" id="pagination"></ul>
-    </nav>
+
   </div>
 
   <!-- Upload Modal (same as index) -->
@@ -258,21 +267,22 @@
       box.dataset.ready = '1';
     }
     function fillFilterCategorySelect() {
-      const sel = document.getElementById('filterCategory');
-      if (!sel || sel.dataset.ready) return;
+      const box = document.getElementById('filterCategoryBox');
+      if (!box || box.dataset.ready) return;
       const cats = window.PROJECT_CATEGORIES || [];
-      cats.forEach(c => {
-        const o = document.createElement('option');
-        o.value = c; o.textContent = c;
-        sel.appendChild(o);
-      });
-      sel.dataset.ready = '1';
+      box.innerHTML = cats.map((c, i) => `
+        <div class="form-check">
+          <input class="form-check-input filter-cat-cb" type="checkbox" value="${c}" id="fc_${i}">
+          <label class="form-check-label small" for="fc_${i}">${c}</label>
+        </div>`).join('');
+      box.dataset.ready = '1';
     }
 
     function applyClientFilters(docs) {
       const q = (document.getElementById('filterSearch')?.value || '').trim().toLowerCase();
-      const cat = document.getElementById('filterCategory')?.value || '';
-      const mode = document.getElementById('filterPriceMode')?.value || '';
+      const selectedCats = Array.from(document.querySelectorAll('.filter-cat-cb:checked')).map(el => el.value);
+      const wantFree = document.getElementById('filterFree')?.checked;
+      const wantPaid = document.getElementById('filterPaid')?.checked;
       const minP = parseFloat(document.getElementById('filterPriceMin')?.value);
       const maxP = parseFloat(document.getElementById('filterPriceMax')?.value);
       const onSaleOnly = document.getElementById('filterOnSale')?.checked;
@@ -283,17 +293,15 @@
           const hay = ((p.title||'') + ' ' + (p.description||'') + ' ' + (p.sellerName||'') + ' ' + ((p.categories||[]).join(' '))).toLowerCase();
           if (!hay.includes(q)) return false;
         }
-        if (cat) {
+        if (selectedCats.length) {
           const cats = p.categories || [];
-          if (!cats.includes(cat)) return false;
+          if (!selectedCats.some(c => cats.includes(c))) return false;
         }
         const eff = window.getEffectivePrice ? window.getEffectivePrice(p) : (parseFloat(p.price)||0);
-        if (mode === 'free' && eff > 0) return false;
-        if (mode === 'paid' && eff <= 0) return false;
-        if (mode === 'range') {
-          if (isFinite(minP) && eff < minP) return false;
-          if (isFinite(maxP) && eff > maxP) return false;
-        }
+        if (wantFree && !wantPaid && eff > 0) return false;
+        if (wantPaid && !wantFree && eff <= 0) return false;
+        if (isFinite(minP) && eff < minP) return false;
+        if (isFinite(maxP) && eff > maxP) return false;
         if (onSaleOnly && !(window.isProductOnSale && window.isProductOnSale(p))) return false;
         return true;
       });
@@ -364,11 +372,24 @@
       grid.innerHTML = renderProjectCards(pageDocs);
     };
 
-    ['filterSearch','filterCategory','filterPriceMode','filterPriceMin','filterPriceMax','filterOnSale'].forEach(id => {
-      document.getElementById(id)?.addEventListener(id === 'filterSearch' ? 'input' : 'change', () => {
-        try { window._rerenderProjectsFiltered && window._rerenderProjectsFiltered(); } catch(_){}
+    function bindFilterEvents() {
+      const rerender = () => { try { window._rerenderProjectsFiltered && window._rerenderProjectsFiltered(); } catch(_){} };
+      document.getElementById('filterSearch')?.addEventListener('input', rerender);
+      ['filterPriceMin','filterPriceMax'].forEach(id => document.getElementById(id)?.addEventListener('input', rerender));
+      document.getElementById('filterOnSale')?.addEventListener('change', rerender);
+      document.getElementById('filterFree')?.addEventListener('change', rerender);
+      document.getElementById('filterPaid')?.addEventListener('change', rerender);
+      document.getElementById('filterCategoryBox')?.addEventListener('change', rerender);
+      document.getElementById('filterResetBtn')?.addEventListener('click', () => {
+        const s = document.getElementById('filterSearch'); if (s) s.value = '';
+        document.querySelectorAll('.filter-cat-cb').forEach(el => { el.checked = false; });
+        ['filterFree','filterPaid','filterOnSale'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+        const mn = document.getElementById('filterPriceMin'); if (mn) mn.value = '';
+        const mx = document.getElementById('filterPriceMax'); if (mx) mx.value = '';
+        rerender();
       });
-    });
+    }
+    bindFilterEvents();
 
     async function loadProjects(direction = 'first') {
       const grid = document.getElementById('projectsGrid');

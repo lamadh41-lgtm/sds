@@ -217,7 +217,8 @@
         } else {
           actions = `
             <a href="product.html?id=${p.id}" class="btn btn-sm btn-outline-primary">عرض</a>
-            <button class="btn btn-sm btn-warning edit-price-btn" data-id="${p.id}" data-price="${p.price||0}" data-original="${p.originalPrice||''}" data-saleends="${p.saleEndsAt?.toMillis?.()||p.saleEndsAt?.__ts||''}">تعديل</button>
+            <button class="btn btn-sm btn-warning edit-price-btn" data-id="${p.id}">تعديل</button>
+            <span class="small text-muted sale-cooldown-label" data-id="${p.id}"></span>
             <button class="btn btn-sm btn-outline-danger del-btn" data-id="${p.id}">حذف</button>`;
         }
         const statusBadge = p.status === 'rejected'
@@ -242,6 +243,19 @@
       }).join('');
 
       
+      // تحديث نص المدة المتبقية بجانب زر التعديل
+      list.querySelectorAll('.sale-cooldown-label').forEach(el => {
+        const proj = allMyProjects.find(x => x.id === el.dataset.id);
+        if (!proj) return;
+        const last = proj.lastOfferEditAt?.toMillis?.() || proj.lastOfferEditAt?.__ts || (proj.lastOfferEditAt ? new Date(proj.lastOfferEditAt).getTime() : 0);
+        if (!last) { el.textContent = ''; return; }
+        const left = last + 24*3600000 - Date.now();
+        if (left <= 0) { el.textContent = ''; return; }
+        const h = Math.floor(left / 3600000);
+        const m = Math.floor((left % 3600000) / 60000);
+        el.textContent = h > 0 ? `(تعديل العرض بعد ${h}س ${m}د)` : `(تعديل العرض بعد ${m}د)`;
+      });
+
       list.querySelectorAll('.edit-price-btn').forEach(btn => {
         btn.onclick = () => {
           const p = allMyProjects.find(x => x.id === btn.dataset.id);
@@ -251,12 +265,39 @@
           document.getElementById('editActiveDesc').value = p.description || '';
           document.getElementById('editOldThumbFileId').value = p.thumbnailFileId || '';
           document.getElementById('editPriceValue').value = p.price || 0;
-          const onSale = window.isProductOnSale && window.isProductOnSale(p);
-          document.getElementById('editSaleLockAlert')?.classList.toggle('d-none', !onSale);
-          document.querySelectorAll('#editPriceSection input, #editPriceSection select').forEach(el => { el.disabled = !!onSale; });
-          if (!onSale) {
-            document.getElementById('editSaleEnabled').checked = false;
-            document.getElementById('editSaleFields')?.classList.add('d-none');
+          // قاعدة العرض: يمكن التعديل أثناء العرض، لكن بعد تعديل العرض يُفرض انتظار 24 ساعة على نفس المنتج
+          const lastOfferEdit = p.lastOfferEditAt?.toMillis?.() || p.lastOfferEditAt?.__ts || (p.lastOfferEditAt ? new Date(p.lastOfferEditAt).getTime() : 0);
+          const cooldownMs = 24 * 3600000;
+          const offerCooldownLeft = lastOfferEdit ? (lastOfferEdit + cooldownMs - Date.now()) : 0;
+          const offerLocked = offerCooldownLeft > 0;
+          const alertEl = document.getElementById('editSaleLockAlert');
+          if (alertEl) {
+            if (offerLocked) {
+              const h = Math.ceil(offerCooldownLeft / 3600000);
+              alertEl.classList.remove('d-none');
+              alertEl.innerHTML = `لا يمكن تعديل <strong>العرض</strong> الآن. متبقي تقريباً <strong>${h} ساعة</strong> (من آخر تعديل عرض على هذا المنتج). تعديل السعر العادي متاح.`;
+            } else {
+              alertEl.classList.add('d-none');
+            }
+          }
+          // السعر العادي دائماً مفعّل
+          document.querySelectorAll('#editPriceSection input, #editPriceSection select').forEach(el => { el.disabled = false; });
+          // حقول العرض تُقفل فقط أثناء فترة الـ 24 ساعة
+          document.querySelectorAll('#editSaleFields input, #editSaleFields select, #editSaleEnabled').forEach(el => {
+            el.disabled = offerLocked;
+          });
+          if (offerLocked) {
+            document.getElementById('editSaleEnabled').checked = !!(window.isProductOnSale && window.isProductOnSale(p));
+          } else {
+            document.getElementById('editSaleEnabled').checked = !!(window.isProductOnSale && window.isProductOnSale(p));
+            if (!(window.isProductOnSale && window.isProductOnSale(p))) {
+              document.getElementById('editSaleFields')?.classList.add('d-none');
+            } else {
+              document.getElementById('editSaleFields')?.classList.remove('d-none');
+              document.getElementById('editOriginalPrice').value = p.originalPrice || '';
+              document.getElementById('editSaleDuration').value = p.saleDurationValue || 7;
+              if (p.saleDurationUnit) document.getElementById('editSaleUnit').value = p.saleDurationUnit;
+            }
           }
           const box = document.getElementById('editActiveCats');
           const cats = window.PROJECT_CATEGORIES || [];
@@ -391,39 +432,63 @@
       const id = document.getElementById('editPriceId')?.value;
       const p = allMyProjects.find(x => x.id === id);
       if (!p || !id) return;
-      const onSale = window.isProductOnSale && window.isProductOnSale(p);
       const title = (document.getElementById('editActiveTitle')?.value || '').trim();
       const description = (document.getElementById('editActiveDesc')?.value || '').trim();
       if (!title || !description) { showToast('الاسم والوصف مطلوبان', 'error'); return; }
       const cats = Array.from(document.querySelectorAll('input[name="editActiveCat"]:checked')).map(el => el.value);
       if (!cats.length) { showToast('اختر فلترًا واحدًا على الأقل', 'error'); return; }
       const payload = { title, description, categories: cats, updatedAt: serverTimestamp() };
-      if (!onSale) {
-        let price = parseFloat(document.getElementById('editPriceValue')?.value) || 0;
-        if (price < 0) { showToast('سعر غير صالح', 'error'); return; }
-        payload.price = price;
-        payload.isFree = price === 0;
-        if (document.getElementById('editSaleEnabled')?.checked && price > 0) {
-          const orig = parseFloat(document.getElementById('editOriginalPrice')?.value) || 0;
-          const durVal = parseFloat(document.getElementById('editSaleDuration')?.value) || 0;
-          const unit = document.getElementById('editSaleUnit')?.value || 'days';
-          if (!(orig > price)) { showToast('السعر الأصلي أكبر من سعر العرض', 'error'); return; }
-          if (!(durVal > 0)) { showToast('حدد مدة العرض', 'error'); return; }
-          const conf = (typeof siteConfirm === 'function')
-            ? await siteConfirm('بعد الحفظ يبدأ العرض ولن يمكن تعديل السعر/العرض حتى ينتهي. متابع؟', 'تأكيد العرض')
-            : confirm('بعد الحفظ يبدأ العرض ولن يمكن تعديله حتى ينتهي. متابع؟');
-          if (!conf) return;
-          const mult = unit === 'hours' ? 3600000 : (unit === 'months' ? 30*86400000 : 86400000);
-          payload.originalPrice = orig;
-          payload.saleEndsAt = new Date(Date.now() + durVal * mult);
-          payload.salePending = false;
-          payload.saleDurationValue = durVal;
-          payload.saleDurationUnit = unit;
-        } else {
+
+      // السعر العادي: متاح دائماً
+      let price = parseFloat(document.getElementById('editPriceValue')?.value) || 0;
+      if (price < 0) { showToast('سعر غير صالح', 'error'); return; }
+      payload.price = price;
+      payload.isFree = price === 0;
+
+      // العرض: مسموح حتى أثناء السريان، لكن بعد أي تعديل عرض → انتظار 24 ساعة على نفس المنتج
+      const lastOfferEdit = p.lastOfferEditAt?.toMillis?.() || p.lastOfferEditAt?.__ts || (p.lastOfferEditAt ? new Date(p.lastOfferEditAt).getTime() : 0);
+      const cooldownMs = 24 * 3600000;
+      const offerCooldownLeft = lastOfferEdit ? (lastOfferEdit + cooldownMs - Date.now()) : 0;
+      const wantSale = document.getElementById('editSaleEnabled')?.checked && price > 0;
+      const currentlyOnSale = window.isProductOnSale && window.isProductOnSale(p);
+
+      if (wantSale) {
+        if (offerCooldownLeft > 0) {
+          const h = Math.ceil(offerCooldownLeft / 3600000);
+          showToast('لا يمكن تعديل العرض الآن. متبقي حوالي ' + h + ' ساعة', 'error');
+          return;
+        }
+        const orig = parseFloat(document.getElementById('editOriginalPrice')?.value) || 0;
+        const durVal = parseFloat(document.getElementById('editSaleDuration')?.value) || 0;
+        const unit = document.getElementById('editSaleUnit')?.value || 'days';
+        if (!(orig > price)) { showToast('السعر الأصلي يجب أن يكون أكبر من سعر العرض', 'error'); return; }
+        if (!(durVal > 0)) { showToast('حدد مدة العرض', 'error'); return; }
+        const conf = (typeof siteConfirm === 'function')
+          ? await siteConfirm('بعد الحفظ يبدأ/يُحدَّث العرض. لن تستطيع تعديل العرض مرة أخرى إلا بعد 24 ساعة على هذا المنتج. متابع؟', 'تأكيد العرض')
+          : confirm('بعد الحفظ: انتظار 24 ساعة قبل تعديل العرض مجدداً على هذا المنتج. متابع؟');
+        if (!conf) return;
+        const mult = unit === 'hours' ? 3600000 : (unit === 'months' ? 30*86400000 : 86400000);
+        payload.originalPrice = orig;
+        payload.saleEndsAt = new Date(Date.now() + durVal * mult);
+        payload.salePending = false;
+        payload.saleDurationValue = durVal;
+        payload.saleDurationUnit = unit;
+        payload.lastOfferEditAt = new Date();
+      } else if (currentlyOnSale || p.originalPrice) {
+        // إلغاء العرض (مسموح أيضاً ويحسب كتعديل عرض)
+        if (offerCooldownLeft > 0) {
+          // أثناء الكولداون: نترك العرض كما هو ونحدّث السعر فقط إذا تغيّر دون لمس العرض
+          // إن كان المستخدم ألغى التفعيل وهو مقفول — تجاهل
+        } else if (document.getElementById('editSaleEnabled') && !document.getElementById('editSaleEnabled').checked) {
           payload.originalPrice = null;
           payload.saleEndsAt = null;
           payload.salePending = false;
+          payload.lastOfferEditAt = new Date();
         }
+      } else {
+        payload.originalPrice = null;
+        payload.saleEndsAt = null;
+        payload.salePending = false;
       }
       showLoading(true, 'جاري الحفظ...');
       try {
@@ -465,7 +530,7 @@
         <input type="hidden" id="editPriceId">
         <input type="hidden" id="editOldThumbFileId">
         <div id="editSaleLockAlert" class="alert alert-warning d-none">
-          يوجد عرض ساري. لا يمكن تعديل السعر أو العرض حتى ينتهي في موعده.
+          تعديل العرض متاح، لكن بعد أي تعديل على العرض يجب الانتظار 24 ساعة قبل تعديل العرض مرة أخرى على هذا المنتج. تعديل السعر العادي متاح دائماً.
         </div>
         <div class="mb-3">
           <label class="form-label">اسم المشروع</label>
@@ -512,7 +577,7 @@
                 </select>
               </div>
             </div>
-            <small class="text-muted">للمنتج المنشور: العرض يبدأ فور الحفظ ولا يُعدَّل قبل انتهائه.</small>
+            <small class="text-muted">العرض يبدأ فور الحفظ. بعد أي تعديل عرض على هذا المنتج يُمنع تعديل العرض لمدة 24 ساعة. تعديل السعر العادي متاح دائماً.</small>
           </div>
         </div>
       </div>
