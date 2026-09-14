@@ -1020,7 +1020,8 @@ async function uploadToDriveScript(file, onProgress, meta = {}) {
     projectName: (meta && meta.projectName) || 'project',
     folderKind: (meta && meta.folderKind) || 'files',
     userName: (meta && meta.userName) || '',
-    userId: (meta && meta.userId) || ''
+    userId: (meta && meta.userId) || '',
+    deleteOldInFolder: !!(meta && meta.deleteOldInFolder)
   });
 
   const text = await new Promise((resolve, reject) => {
@@ -1051,9 +1052,38 @@ async function uploadToDriveScript(file, onProgress, meta = {}) {
   if (progressCb) progressCb(100);
   return data;
 }
+
 window.uploadToDriveScript = uploadToDriveScript;
 window.compressImageFile = compressImageFile;
 window.getDriveUploadConfig = getDriveUploadConfig;
+
+/** حذف ملف من الدرايف بالـ fileId (لتوفير المساحة عند تغيير صورة البروفايل) */
+async function deleteFromDriveScript(fileId) {
+  if (!fileId) return false;
+  try {
+    const cfg = await getDriveUploadConfig();
+    if (!cfg?.scriptUrl) return false;
+    const scriptUrl = String(cfg.scriptUrl).trim();
+    const payload = JSON.stringify({ secret: cfg.secret || '', action: 'delete', fileId: String(fileId) });
+    const text = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', scriptUrl, true);
+      xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+      xhr.timeout = 30000;
+      xhr.onload = () => resolve(xhr.responseText || '');
+      xhr.onerror = () => reject(new Error('network'));
+      xhr.ontimeout = () => reject(new Error('timeout'));
+      xhr.send(payload);
+    });
+    const data = JSON.parse(text);
+    return !!(data && data.ok);
+  } catch (e) {
+    console.warn('deleteFromDrive', e);
+    return false;
+  }
+}
+window.deleteFromDriveScript = deleteFromDriveScript;
+
 
 
 // Export for other pages
@@ -1072,7 +1102,7 @@ function moderateText(text, fieldName = 'النص') {
   }
   return true;
 }
-export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl, uploadToDriveScript, compressImageFile };
+export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl, uploadToDriveScript, compressImageFile, deleteFromDriveScript };
 window.moderateText = moderateText;
 
 

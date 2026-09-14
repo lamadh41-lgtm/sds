@@ -2,7 +2,7 @@
   سكربت Google Apps Script — متجر مصران
   SECRET الثابت: moaz
 --------------------------------------------------------------------------------
-  SCRIPT_VERSION = 3
+  SCRIPT_VERSION = 4
 
   قاعدة الإصدار (إلزامية):
   - أي تحديث أو تعديل على هذا الملف (بواسطة إنسان أو ذكاء اصطناعي)
@@ -54,6 +54,19 @@ function doPost(e) {
       return json_({ ok: false, error: 'غير مصرح' });
     }
 
+    // حذف ملف من الدرايف (صورة بروفايل قديمة وغيرها)
+    if (data.action === 'delete') {
+      const delId = String(data.fileId || '').trim();
+      if (!delId) return json_({ ok: false, error: 'fileId مطلوب للحذف' });
+      try {
+        const f = DriveApp.getFileById(delId);
+        f.setTrashed(true);
+        return json_({ ok: true, deleted: delId });
+      } catch (err) {
+        return json_({ ok: false, error: 'تعذر الحذف: ' + String(err) });
+      }
+    }
+
     const b64 = data.base64 || '';
     if (!b64) return json_({ ok: false, error: 'لا يوجد ملف' });
 
@@ -78,7 +91,17 @@ function doPost(e) {
 
     if (kind === 'profile' || kind === 'الملف_الشخصي' || kind === 'avatar') {
       // صورة الملف الشخصي: المستخدم/الملف_الشخصي
+      // احذف الصور القديمة في نفس المجلد لتوفير المساحة (اختياري عند وجود deleteOld)
       targetFolder = getOrCreateFolder_(userFolder, 'الملف_الشخصي');
+      if (data.deleteOldInFolder) {
+        try {
+          const files = targetFolder.getFiles();
+          while (files.hasNext()) {
+            const oldF = files.next();
+            oldF.setTrashed(true);
+          }
+        } catch (e) {}
+      }
     } else if (kind === 'transfers' || kind === 'التحويلات') {
       // شحن رصيد: المستخدم/التحويلات
       targetFolder = getOrCreateFolder_(userFolder, 'التحويلات');

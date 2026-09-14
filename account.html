@@ -111,7 +111,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
     import { auth, db, onAuthStateChanged, doc, getDoc, updateDoc, reauthenticateWithCredential, EmailAuthProvider, updateProfile } from './firebase.js';
-    import { showToast, showLoading, getInitials, uploadToDriveScript, compressImageFile } from './app.js';
+    import { showToast, showLoading, getInitials, uploadToDriveScript, compressImageFile, deleteFromDriveScript } from './app.js';
 
     let currentUser = null;
     let originalData = {};
@@ -199,16 +199,24 @@
       showLoading(true, 'جاري رفع صورة الملف الشخصي...');
       try {
         const compressed = await compressImageFile(cropped, 400, 0.8);
+        const oldFileId = originalData.photoFileId || '';
         const up = await uploadToDriveScript(compressed, null, {
           projectName: 'profile',
           folderKind: 'profile',
           userName: originalData.name || currentUser.displayName || '',
-          userId: currentUser.uid
+          userId: currentUser.uid,
+          deleteOldInFolder: true
         });
         const photoURL = up.thumbUrl || up.url;
+        const photoFileId = up.fileId || '';
+        // احذف الصورة القديمة صراحة إن وُجدت
+        if (oldFileId && oldFileId !== photoFileId) {
+          try { await deleteFromDriveScript(oldFileId); } catch (_) {}
+        }
         await updateDoc(doc(db, 'users', currentUser.uid), {
           photoURL,
           avatarUrl: photoURL,
+          photoFileId: photoFileId || null,
           photoUpdatedAt: new Date().toISOString()
         });
         try { await updateProfile(currentUser, { photoURL }); } catch (_) {}
@@ -216,7 +224,8 @@
         originalData.photoURL = photoURL;
         originalData.avatarUrl = photoURL;
         setAvatarUI(originalData.name || currentUser.displayName, photoURL);
-        try { window.localCache?.set('user:' + currentUser.uid, { ...originalData, photoURL, avatarUrl: photoURL }); } catch(_){}
+        originalData.photoFileId = photoFileId;
+        try { window.localCache?.set('user:' + currentUser.uid, { ...originalData, photoURL, avatarUrl: photoURL, photoFileId }); } catch(_){}
         showToast('تم رفع صورة الملف الشخصي بنجاح');
       } catch (err) {
         console.error(err);
