@@ -34,6 +34,43 @@
       </button>
     </div>
 
+    <div id="projectsFilterBar" class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-3">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label small mb-1">بحث</label>
+            <input type="search" class="form-control" id="filterSearch" placeholder="ابحث عن سلاح، كود، كرسي...">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small mb-1">فلتر / قسم</label>
+            <select class="form-select" id="filterCategory"><option value="">الكل</option></select>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small mb-1">السعر</label>
+            <select class="form-select" id="filterPriceMode">
+              <option value="">الكل</option>
+              <option value="free">مجاني</option>
+              <option value="paid">مدفوع</option>
+              <option value="range">من - إلى</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-1 d-none" id="filterPriceMinWrap">
+            <label class="form-label small mb-1">من</label>
+            <input type="number" class="form-control" id="filterPriceMin" min="0" step="any">
+          </div>
+          <div class="col-6 col-md-1 d-none" id="filterPriceMaxWrap">
+            <label class="form-label small mb-1">إلى</label>
+            <input type="number" class="form-control" id="filterPriceMax" min="0" step="any">
+          </div>
+          <div class="col-md-2">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" id="filterOnSale">
+              <label class="form-check-label" for="filterOnSale">عروض فقط</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="row g-4" id="projectsGrid">
       <div class="col-12 text-center py-5">
         <div class="spinner-border text-primary"></div>
@@ -110,9 +147,43 @@
               </div>
             </div>
             <div class="mb-3" id="projPriceWrap" style="display:none;">
-              <label class="form-label">السعر (ج.م) *</label>
-              <input type="number" class="form-control" id="projPrice" min="0" step="any" value="0" placeholder="مثال: 50">
+              <label class="form-label">السعر (ج.م) — سعر البيع الحالي *</label>
+              <input type="number" class="form-control" id="projPrice" min="0" step="any" value="0" placeholder="مثال: 15">
             </div>
+
+            <div class="mb-3" id="projSaleWrap" style="display:none;">
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" id="projSaleEnabled">
+                <label class="form-check-label" for="projSaleEnabled">تفعيل عرض (سعر مخفّض لمدة محدودة)</label>
+              </div>
+              <div id="projSaleFields" class="border rounded p-2 bg-light d-none">
+                <div class="row g-2">
+                  <div class="col-md-4">
+                    <label class="form-label small">السعر الأصلي (قبل العرض) *</label>
+                    <input type="number" class="form-control form-control-sm" id="projOriginalPrice" min="0" step="any" placeholder="مثال: 20">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">مدة العرض *</label>
+                    <input type="number" class="form-control form-control-sm" id="projSaleDuration" min="1" step="1" value="7">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">الوحدة</label>
+                    <select class="form-select form-select-sm" id="projSaleUnit">
+                      <option value="hours">ساعات</option>
+                      <option value="days" selected>أيام</option>
+                      <option value="months">شهور</option>
+                    </select>
+                  </div>
+                </div>
+                <small class="text-muted">سعر البيع = سعر العرض. مدة العرض تبدأ عند <strong>قبول الإدارة</strong>. أثناء العرض لا يمكن تعديل السعر/العرض. بعد الانتهاء يرجع السعر الأصلي للناس والعمولة تُحسب على السعر المدفوع وقت الشراء.</small>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">الفلاتر / الأقسام * <small class="text-muted">(اختر من 1 إلى 20)</small></label>
+              <div id="projCategoriesBox" class="row g-1" style="max-height:180px;overflow-y:auto;"></div>
+              <small class="text-muted">مطلوب فلتر واحد على الأقل حتى تظهر نتيجة الفلاتر للزوار.</small>
+            </div>
+
             <div id="paymentFields" style="display:none;">
               <div class="row">
                 <div class="col-md-6 mb-3">
@@ -192,6 +263,95 @@
           });
         } catch (e) { console.error(e); }
       }
+      
+    // ===== فلاتر وبحث + أقسام الرفع =====
+    function fillCategoriesBox() {
+      const box = document.getElementById('projCategoriesBox');
+      if (!box || box.dataset.ready) return;
+      const cats = window.PROJECT_CATEGORIES || [];
+      box.innerHTML = cats.map((c, i) => `
+        <div class="col-6 col-md-4">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="projCategory" value="${c}" id="cat_${i}">
+            <label class="form-check-label small" for="cat_${i}">${c}</label>
+          </div>
+        </div>`).join('');
+      box.dataset.ready = '1';
+    }
+    function fillFilterCategorySelect() {
+      const sel = document.getElementById('filterCategory');
+      if (!sel || sel.dataset.ready) return;
+      const cats = window.PROJECT_CATEGORIES || [];
+      cats.forEach(c => {
+        const o = document.createElement('option');
+        o.value = c; o.textContent = c;
+        sel.appendChild(o);
+      });
+      sel.dataset.ready = '1';
+    }
+    document.getElementById('projSaleEnabled')?.addEventListener('change', (e) => {
+      document.getElementById('projSaleFields')?.classList.toggle('d-none', !e.target.checked);
+    });
+    // إظهار خيارات العرض مع السعر المدفوع
+    document.querySelectorAll('input[name="projPricing"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const paid = document.querySelector('input[name="projPricing"]:checked')?.value === 'paid';
+        const sw = document.getElementById('projSaleWrap');
+        if (sw) sw.style.display = paid ? '' : 'none';
+        if (!paid) {
+          const en = document.getElementById('projSaleEnabled');
+          if (en) en.checked = false;
+          document.getElementById('projSaleFields')?.classList.add('d-none');
+        }
+      });
+    });
+    document.getElementById('filterPriceMode')?.addEventListener('change', () => {
+      const v = document.getElementById('filterPriceMode').value;
+      const show = v === 'range';
+      document.getElementById('filterPriceMinWrap')?.classList.toggle('d-none', !show);
+      document.getElementById('filterPriceMaxWrap')?.classList.toggle('d-none', !show);
+    });
+    function applyClientFilters(docs) {
+      const q = (document.getElementById('filterSearch')?.value || '').trim().toLowerCase();
+      const cat = document.getElementById('filterCategory')?.value || '';
+      const mode = document.getElementById('filterPriceMode')?.value || '';
+      const minP = parseFloat(document.getElementById('filterPriceMin')?.value);
+      const maxP = parseFloat(document.getElementById('filterPriceMax')?.value);
+      const onSaleOnly = document.getElementById('filterOnSale')?.checked;
+      return docs.filter(d => {
+        const p = typeof d.data === 'function' ? d.data() : d.data;
+        if (!p) return false;
+        if (q) {
+          const hay = ((p.title||'') + ' ' + (p.description||'') + ' ' + (p.sellerName||'') + ' ' + ((p.categories||[]).join(' '))).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        if (cat) {
+          const cats = p.categories || [];
+          if (!cats.includes(cat)) return false;
+        }
+        const eff = window.getEffectivePrice ? window.getEffectivePrice(p) : (parseFloat(p.price)||0);
+        if (mode === 'free' && eff > 0) return false;
+        if (mode === 'paid' && eff <= 0) return false;
+        if (mode === 'range') {
+          if (isFinite(minP) && eff < minP) return false;
+          if (isFinite(maxP) && eff > maxP) return false;
+        }
+        if (onSaleOnly && !(window.isProductOnSale && window.isProductOnSale(p))) return false;
+        return true;
+      });
+    }
+    ['filterSearch','filterCategory','filterPriceMode','filterPriceMin','filterPriceMax','filterOnSale'].forEach(id => {
+      document.getElementById(id)?.addEventListener(id === 'filterSearch' ? 'input' : 'change', () => {
+        if (typeof window._lastProjectsPageDocs !== 'undefined') {
+          // re-render from last page
+          try { window._rerenderProjectsFiltered && window._rerenderProjectsFiltered(); } catch(_){}
+        }
+      });
+    });
+    fillCategoriesBox();
+    fillFilterCategorySelect();
+    document.getElementById('uploadModal')?.addEventListener('show.bs.modal', fillCategoriesBox);
+
       loadProjects('first');
     });
 
@@ -256,7 +416,7 @@
         }
 
         pageDocs = snap.docs.filter(d => d.data().status === 'active');
-        // احفظ الصفحة الأولى محلياً
+        // احفظ الصفحة الأولى محلياً (قبل فلتر الواجهة)
         if (projectsPageIndex === 0 || direction === 'first') {
           try {
             const activeDocs = pageDocs.filter(d => (d.data().status || 'active') === 'active');
@@ -264,7 +424,8 @@
             activeDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
           } catch(_){}
         }
-        }
+        window._lastProjectsPageDocs = pageDocs;
+        pageDocs = applyClientFilters(pageDocs);
         if (currentUser) {
           pageDocs.forEach(d => {
             if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
@@ -272,7 +433,7 @@
         }
 
         if (pageDocs.length === 0) {
-          grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد مشاريع بعد. كن أول من يشارك!</p></div>';
+          grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد نتائج مطابقة للبحث أو الفلاتر.</p></div>';
           document.getElementById('pagination').innerHTML = '';
           return;
         }
@@ -287,9 +448,11 @@
 
         grid.innerHTML = pageDocs.map(d => {
           const p = d.data();
-          const priceHtml = p.isFree || p.price === 0 
-            ? '<span class="project-price free">مجاني</span>' 
-            : `<span class="project-price">${p.price} ج.م</span>`;
+          const priceHtml = window.priceHtmlForProduct
+            ? window.priceHtmlForProduct(p)
+            : (p.isFree || (window.getEffectivePrice ? window.getEffectivePrice(p) : p.price) === 0
+              ? '<span class="project-price free">مجاني</span>'
+              : `<span class="project-price">${window.getEffectivePrice ? window.getEffectivePrice(p) : p.price} ج.م</span>`);
           const verified = p.isOfficial 
             ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>' 
             : '';

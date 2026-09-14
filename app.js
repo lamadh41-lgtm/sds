@@ -6,6 +6,59 @@ import {
 } from './firebase.js';
 import { cacheGet, cacheSet, cachedFetch, softFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, cacheRemove, toPlain } from './localCache.js';
 
+// ===== 20 فلتر / قسم للأصول =====
+const PROJECT_CATEGORIES = ['برمجة وسكربتات', 'شخصيات وأفاتار', 'أسلحة وقتال', 'مركبات', 'بيئة وديكور', 'واجهات UI', 'تأثيرات VFX', 'أصوات وموسيقى', 'حركات Animation', 'قوالب مشاريع', 'تعريب وأدوات عربية', 'ألعاب كاملة', 'شبكات ومتعدد لاعبين', 'ذكاء اصطناعي', 'إضاءة ورندر', 'خامات ومواد Materials', 'أدوات محرر Editor', 'تعليم وشروحات', 'إضافات ومنصات', 'أخرى'];
+if (typeof window !== 'undefined') window.PROJECT_CATEGORIES = PROJECT_CATEGORIES;
+
+function getEffectivePrice(p) {
+  if (!p) return 0;
+  const cur = parseFloat(p.price) || 0;
+  const orig = parseFloat(p.originalPrice);
+  const ends = p.saleEndsAt?.toMillis?.() || p.saleEndsAt?.__ts || (p.saleEndsAt ? new Date(p.saleEndsAt).getTime() : 0);
+  // بعد انتهاء العرض: يرجع السعر الأصلي
+  if (isFinite(orig) && orig > 0 && ends && Date.now() > ends) return orig;
+  return cur;
+}
+function isProductOnSale(p) {
+  if (!p) return false;
+  if (p.salePending) return false; // لم يبدأ بعد قبول الأدمن
+  const now = Date.now();
+  const ends = p.saleEndsAt?.toMillis?.() || p.saleEndsAt?.__ts || (p.saleEndsAt ? new Date(p.saleEndsAt).getTime() : 0);
+  const orig = parseFloat(p.originalPrice);
+  const cur = parseFloat(p.price);
+  return isFinite(orig) && isFinite(cur) && orig > cur && ends && ends > now;
+}
+function formatSaleRemaining(p) {
+  if (!isProductOnSale(p)) return '';
+  const ends = p.saleEndsAt?.toMillis?.() || p.saleEndsAt?.__ts || new Date(p.saleEndsAt).getTime();
+  let ms = ends - Date.now();
+  if (ms <= 0) return 'انتهى العرض';
+  const h = Math.floor(ms / 3600000);
+  const d = Math.floor(h / 24);
+  const hours = h % 24;
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (d > 0) return d + ' يوم' + (hours ? ' و ' + hours + ' ساعة' : '');
+  if (h > 0) return h + ' ساعة' + (m ? ' و ' + m + ' دقيقة' : '');
+  return Math.max(1, m) + ' دقيقة';
+}
+function priceHtmlForProduct(p) {
+  const cur = parseFloat(p.price) || 0;
+  if (cur <= 0) return '<span class="badge bg-success">مجاني</span>';
+  if (isProductOnSale(p)) {
+    const orig = parseFloat(p.originalPrice) || 0;
+    return `<span class="text-decoration-line-through text-muted me-1">${orig} ج.م</span><span class="text-danger fw-bold">${cur} ج.م</span> <span class="badge bg-danger">عرض</span> <small class="text-muted">تبقى ${formatSaleRemaining(p)}</small>`;
+  }
+  return `<span class="fw-bold text-primary">${cur} ج.م</span>`;
+}
+if (typeof window !== 'undefined') {
+  window.PROJECT_CATEGORIES = PROJECT_CATEGORIES;
+  window.getEffectivePrice = getEffectivePrice;
+  window.isProductOnSale = isProductOnSale;
+  window.formatSaleRemaining = formatSaleRemaining;
+  window.priceHtmlForProduct = priceHtmlForProduct;
+}
+
+
 // ===== Helpers =====
 function showToast(message, type = 'success') {
   let container = document.querySelector('.toast-container');
@@ -538,14 +591,52 @@ function collectProjectFormData() {
   if (price <= 0) {
     payMethod = ''; payNumber = ''; payName = '';
   }
+  // فلاتر: مطلوب واحد على الأقل، حتى 20
+  const cats = Array.from(document.querySelectorAll('input[name="projCategory"]:checked')).map(el => el.value).filter(Boolean);
+  if (!cats.length) {
+    showToast('اختر فلترًا واحدًا على الأقل للمشروع', 'error');
+    return null;
+  }
+  if (cats.length > 20) {
+    showToast('الحد الأقصى 20 فلتر', 'error');
+    return null;
+  }
+  // نظام العرض — المدة تُخزَّن؛ الساعة تبدأ عند قبول الأدمن
+  let originalPrice = null;
+  let saleDurationValue = null;
+  let saleDurationUnit = null;
+  let salePending = false;
+  const saleEnabled = document.getElementById('projSaleEnabled')?.checked;
+  if (saleEnabled && price > 0) {
+    const orig = parseFloat(document.getElementById('projOriginalPrice')?.value) || 0;
+    const durVal = parseFloat(document.getElementById('projSaleDuration')?.value) || 0;
+    const durUnit = document.getElementById('projSaleUnit')?.value || 'days';
+    if (!(orig > price)) {
+      showToast('السعر الأصلي يجب أن يكون أكبر من سعر العرض', 'error');
+      return null;
+    }
+    if (!(durVal > 0)) {
+      showToast('حدد مدة العرض', 'error');
+      return null;
+    }
+    originalPrice = orig;
+    saleDurationValue = durVal;
+    saleDurationUnit = durUnit;
+    salePending = true;
+  }
   return {
     title, description: desc, price, isFree: price === 0,
+    categories: cats,
+    originalPrice: originalPrice,
+    saleEndsAt: null,
+    saleDurationValue,
+    saleDurationUnit,
+    salePending,
     thumbnail: thumbLink,
     thumbnailDirect: getDriveImageUrl(thumbLink),
     filesLink, files: [],
     sellerId: currentUser.uid,
     sellerName: currentUserData?.name || currentUser.displayName || '',
-    // صورة البائع منسوخة هنا لتجنب قراءة users عند عرض كل منتج (توفير reads)
     sellerPhoto: currentUserData?.photoURL || currentUserData?.avatarUrl || currentUser?.photoURL || '',
     paymentMethod: payMethod, paymentNumber: payNumber, paymentName: payName,
     commission: 5, isOfficial: false, downloads: 0, sales: 0
@@ -557,6 +648,13 @@ async function saveProjectWithStatus(status, successMsg) {
   if (isPublishing) return;
   const data = collectProjectFormData();
   if (!data) return;
+  if (data.salePending) {
+    const okSale = await siteConfirm(
+      'تنبيه العرض:\n• مدة العرض تبدأ من لحظة قبول الإدارة للمشروع.\n• أثناء سريان العرض لن يُسمح بتعديل السعر أو العرض إلا بعد انتهائه.\nهل توافق وتكمل؟',
+      'تأكيد العرض'
+    );
+    if (!okSale) return;
+  }
   if (status === 'pending_review') {
     const ok = await siteConfirm('هل أنت متأكد من إرسال المشروع للمراجعة؟\nلن تتمكن من التعديل بعد الإرسال، ويمكنك الحذف فقط أو إلغاء طلب المراجعة.', 'إرسال للمراجعة');
     if (!ok) return;
@@ -579,6 +677,7 @@ async function saveProjectWithStatus(status, successMsg) {
       const upThumb = await uploadToDriveScript(thumbFile, (p) => setProg(15 + p * 0.25, 'رفع المصغرة...'), { projectName, folderKind: 'images', userName: currentUserData?.name || currentUser?.displayName || '', userId: currentUser?.uid || '' });
       data.thumbnail = upThumb.url;
       data.thumbnailDirect = upThumb.thumbUrl || upThumb.url;
+      if (upThumb.fileId) data.thumbnailFileId = upThumb.fileId;
       data.images = [upThumb.url];
       data.driveFolderUrl = upThumb.projectFolderUrl || '';
 
@@ -1153,7 +1252,7 @@ function moderateText(text, fieldName = 'النص') {
   }
   return true;
 }
-export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl, uploadToDriveScript, compressImageFile, deleteFromDriveScript };
+export { showToast, showLoading, getInitials, containsBadWords, moderateText, linkifyText, getDriveDownloadUrl, uploadToDriveScript, compressImageFile, deleteFromDriveScript, siteConfirm };
 window.moderateText = moderateText;
 
 

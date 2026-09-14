@@ -694,7 +694,7 @@
         showToast('يجب تسجيل الدخول أولاً لشراء المنتج', 'error');
         return;
       }
-      const price = parseFloat(projectData.price) || 0;
+      const price = (window.getEffectivePrice ? window.getEffectivePrice(projectData) : parseFloat(projectData.price)) || 0;
       if (!(await siteConfirm(`تأكيد شراء "${projectData.title}" مقابل ${price} ج.م من رصيدك؟`, 'تأكيد الشراء'))) return;
       showLoading(true);
       try {

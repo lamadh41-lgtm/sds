@@ -133,8 +133,8 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
     import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from './firebase.js';
-    import { showToast, showLoading, getInitials } from './app.js';
-
+    import { showToast, showLoading, getInitials, uploadToDriveScript, compressImageFile, deleteFromDriveScript, siteConfirm } from './app.js';
+    
     let currentUser = null;
     let currentTab = 'active';
     let allMyProjects = [];
@@ -217,6 +217,7 @@
         } else {
           actions = `
             <a href="product.html?id=${p.id}" class="btn btn-sm btn-outline-primary">عرض</a>
+            <button class="btn btn-sm btn-warning edit-price-btn" data-id="${p.id}" data-price="${p.price||0}" data-original="${p.originalPrice||''}" data-saleends="${p.saleEndsAt?.toMillis?.()||p.saleEndsAt?.__ts||''}">تعديل</button>
             <button class="btn btn-sm btn-outline-danger del-btn" data-id="${p.id}">حذف</button>`;
         }
         const statusBadge = p.status === 'rejected'
@@ -239,6 +240,37 @@
             </div>
           </div>`;
       }).join('');
+
+      
+      list.querySelectorAll('.edit-price-btn').forEach(btn => {
+        btn.onclick = () => {
+          const p = allMyProjects.find(x => x.id === btn.dataset.id);
+          if (!p) return;
+          document.getElementById('editPriceId').value = p.id;
+          document.getElementById('editActiveTitle').value = p.title || '';
+          document.getElementById('editActiveDesc').value = p.description || '';
+          document.getElementById('editOldThumbFileId').value = p.thumbnailFileId || '';
+          document.getElementById('editPriceValue').value = p.price || 0;
+          const onSale = window.isProductOnSale && window.isProductOnSale(p);
+          document.getElementById('editSaleLockAlert')?.classList.toggle('d-none', !onSale);
+          document.querySelectorAll('#editPriceSection input, #editPriceSection select').forEach(el => { el.disabled = !!onSale; });
+          if (!onSale) {
+            document.getElementById('editSaleEnabled').checked = false;
+            document.getElementById('editSaleFields')?.classList.add('d-none');
+          }
+          const box = document.getElementById('editActiveCats');
+          const cats = window.PROJECT_CATEGORIES || [];
+          const selected = p.categories || [];
+          if (box) {
+            box.innerHTML = cats.map((c, i) => `
+              <div class="col-6 col-md-4"><div class="form-check">
+                <input class="form-check-input" type="checkbox" name="editActiveCat" value="${c}" id="eac_${i}" ${selected.includes(c)?'checked':''}>
+                <label class="form-check-label small" for="eac_${i}">${c}</label>
+              </div></div>`).join('');
+          }
+          new bootstrap.Modal(document.getElementById('editPriceModal')).show();
+        };
+      });
 
       list.querySelectorAll('.del-btn').forEach(btn => {
         btn.onclick = async () => {
@@ -351,6 +383,145 @@
       saveEdit(false);
     });
     document.getElementById('editAndSubmitBtn')?.addEventListener('click', () => saveEdit(true));
+
+    document.getElementById('editSaleEnabled')?.addEventListener('change', (e) => {
+      document.getElementById('editSaleFields')?.classList.toggle('d-none', !e.target.checked);
+    });
+    document.getElementById('saveEditPriceBtn')?.addEventListener('click', async () => {
+      const id = document.getElementById('editPriceId')?.value;
+      const p = allMyProjects.find(x => x.id === id);
+      if (!p || !id) return;
+      const onSale = window.isProductOnSale && window.isProductOnSale(p);
+      const title = (document.getElementById('editActiveTitle')?.value || '').trim();
+      const description = (document.getElementById('editActiveDesc')?.value || '').trim();
+      if (!title || !description) { showToast('الاسم والوصف مطلوبان', 'error'); return; }
+      const cats = Array.from(document.querySelectorAll('input[name="editActiveCat"]:checked')).map(el => el.value);
+      if (!cats.length) { showToast('اختر فلترًا واحدًا على الأقل', 'error'); return; }
+      const payload = { title, description, categories: cats, updatedAt: serverTimestamp() };
+      if (!onSale) {
+        let price = parseFloat(document.getElementById('editPriceValue')?.value) || 0;
+        if (price < 0) { showToast('سعر غير صالح', 'error'); return; }
+        payload.price = price;
+        payload.isFree = price === 0;
+        if (document.getElementById('editSaleEnabled')?.checked && price > 0) {
+          const orig = parseFloat(document.getElementById('editOriginalPrice')?.value) || 0;
+          const durVal = parseFloat(document.getElementById('editSaleDuration')?.value) || 0;
+          const unit = document.getElementById('editSaleUnit')?.value || 'days';
+          if (!(orig > price)) { showToast('السعر الأصلي أكبر من سعر العرض', 'error'); return; }
+          if (!(durVal > 0)) { showToast('حدد مدة العرض', 'error'); return; }
+          const conf = (typeof siteConfirm === 'function')
+            ? await siteConfirm('بعد الحفظ يبدأ العرض ولن يمكن تعديل السعر/العرض حتى ينتهي. متابع؟', 'تأكيد العرض')
+            : confirm('بعد الحفظ يبدأ العرض ولن يمكن تعديله حتى ينتهي. متابع؟');
+          if (!conf) return;
+          const mult = unit === 'hours' ? 3600000 : (unit === 'months' ? 30*86400000 : 86400000);
+          payload.originalPrice = orig;
+          payload.saleEndsAt = new Date(Date.now() + durVal * mult);
+          payload.salePending = false;
+          payload.saleDurationValue = durVal;
+          payload.saleDurationUnit = unit;
+        } else {
+          payload.originalPrice = null;
+          payload.saleEndsAt = null;
+          payload.salePending = false;
+        }
+      }
+      showLoading(true, 'جاري الحفظ...');
+      try {
+        const thumbFile = document.getElementById('editActiveThumb')?.files?.[0];
+        if (thumbFile) {
+          const compressed = await compressImageFile(thumbFile, 1200, 0.85);
+          const up = await uploadToDriveScript(compressed, null, {
+            projectName: title,
+            folderKind: 'images',
+            userName: currentUser?.displayName || '',
+            userId: currentUser?.uid || '',
+            deleteOldInFolder: true
+          });
+          payload.thumbnail = up.url;
+          payload.thumbnailDirect = up.thumbUrl || up.url;
+          if (up.fileId) payload.thumbnailFileId = up.fileId;
+          const oldId = document.getElementById('editOldThumbFileId')?.value;
+          if (oldId) { try { await deleteFromDriveScript(oldId); } catch(_){ } }
+        }
+        await updateDoc(doc(db, 'projects', id), payload);
+        try {
+          window.localCache?.remove('product:' + id);
+          window.localCache?.removePrefix('projects:');
+        } catch(_){}
+        showToast('تم الحفظ');
+        bootstrap.Modal.getInstance(document.getElementById('editPriceModal'))?.hide();
+        await loadMine();
+      } catch (e) { showToast(e.message || String(e), 'error'); }
+      finally { showLoading(false); }
+    });
   </script>
+
+<div class="modal fade" id="editPriceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">تعديل المنتج</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="editPriceId">
+        <input type="hidden" id="editOldThumbFileId">
+        <div id="editSaleLockAlert" class="alert alert-warning d-none">
+          يوجد عرض ساري. لا يمكن تعديل السعر أو العرض حتى ينتهي في موعده.
+        </div>
+        <div class="mb-3">
+          <label class="form-label">اسم المشروع</label>
+          <input type="text" class="form-control" id="editActiveTitle">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">الوصف</label>
+          <textarea class="form-control" id="editActiveDesc" rows="3"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">الفلاتر (1–20)</label>
+          <div id="editActiveCats" class="row g-1" style="max-height:140px;overflow-y:auto;"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">الصورة المصغرة (اختياري — تُستبدل القديمة على الدرايف)</label>
+          <input type="file" class="form-control" id="editActiveThumb" accept="image/*">
+        </div>
+        <hr>
+        <div id="editPriceSection">
+          <div class="mb-3">
+            <label class="form-label">سعر البيع الحالي (ج.م)</label>
+            <input type="number" class="form-control" id="editPriceValue" min="0" step="any">
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="editSaleEnabled">
+            <label class="form-check-label" for="editSaleEnabled">تفعيل عرض جديد</label>
+          </div>
+          <div id="editSaleFields" class="d-none border rounded p-2">
+            <div class="mb-2">
+              <label class="form-label small">السعر الأصلي</label>
+              <input type="number" class="form-control form-control-sm" id="editOriginalPrice" min="0" step="any">
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small">المدة</label>
+                <input type="number" class="form-control form-control-sm" id="editSaleDuration" min="1" value="7">
+              </div>
+              <div class="col-6">
+                <label class="form-label small">الوحدة</label>
+                <select class="form-select form-select-sm" id="editSaleUnit">
+                  <option value="hours">ساعات</option>
+                  <option value="days" selected>أيام</option>
+                  <option value="months">شهور</option>
+                </select>
+              </div>
+            </div>
+            <small class="text-muted">للمنتج المنشور: العرض يبدأ فور الحفظ ولا يُعدَّل قبل انتهائه.</small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+        <button type="button" class="btn btn-primary" id="saveEditPriceBtn">حفظ</button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
