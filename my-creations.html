@@ -246,12 +246,13 @@
           showLoading(true);
           try {
             await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'deleted', deletedAt: serverTimestamp() });
-            // امسح الكاش المحلي عشان المنتج يختفي من قائمة المشاريع فورًا
+            // كاش تابع للشبكة: حدّث ظهور المنتج فقط — لا تلمس كاش المشتريات أبدًا
             try {
               window.localCache?.remove('product:' + btn.dataset.id);
               window.localCache?.removePrefix('projects:');
               window.localCache?.removePrefix('sellerProds:');
               window.localCache?.removePrefix('myProjects:');
+              // ممنوع: removePrefix('purchases:') — المشتريات تبقى شبكياً ومحلياً
             } catch (_) {}
             showToast('تم الحذف');
             await loadMine();

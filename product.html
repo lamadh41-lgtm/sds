@@ -157,15 +157,9 @@
         let projectDataCached = (window.localCache && window.localCache.get('product:' + projectId)) || null;
         let snap = null;
         if (projectDataCached && projectDataCached.id) {
-          const st = projectDataCached.status || 'active';
-          if (st === 'deleted') {
-            try { window.localCache?.remove('product:' + projectId); } catch(_){}
-            document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">هذا المنتج لم يعد متاحًا (تم حذفه).</div>';
-            return;
-          }
           projectData = projectDataCached;
+          // حتى لو محذوف: نكمل للعرض — renderProduct يقرر حسب الشراء
           renderProduct();
-          // لا قراءة — من المحلي
           return;
         }
         snap = await getDoc(doc(db, 'projects', projectId));
@@ -174,11 +168,7 @@
           return;
         }
         projectData = { id: snap.id, ...snap.data() };
-        if (projectData.status === 'deleted') {
-          try { window.localCache?.remove('product:' + projectId); } catch(_){}
-          document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">هذا المنتج لم يعد متاحًا (تم حذفه). يمكن للمشتري السابق رؤيته من مشترياته إن وُجدت.</div>';
-          return;
-        }
+        // الشبكة هي المصدر: نحفظ الحالة كما هي (حتى deleted) في الكاش التابع
         try { window.localCache?.set('product:' + projectId, projectData); } catch(_){}
         renderProduct();
       } catch (err) {
@@ -192,6 +182,17 @@
     let hasPurchased = false;
     let hasPending = false;
     let isOwner = false;
+
+    function appendPurchaseToLocalCache(purchaseId, data) {
+      try {
+        if (!currentUser) return;
+        const pKey = 'purchases:' + currentUser.uid;
+        let list = window.localCache?.get(pKey);
+        if (!Array.isArray(list)) list = [];
+        list.unshift({ id: purchaseId || ('local_' + Date.now()), data: data });
+        window.localCache?.set(pKey, list);
+      } catch (_) {}
+    }
 
     async function checkPurchase() {
       hasPurchased = false;
@@ -335,6 +336,28 @@
     async function renderProduct() {
       await checkPurchase();
       const p = projectData;
+      // منتج محذوف: يظهر فقط للمشتري/المالك (منطق الشبكة) — المحلي لا يلغي المشتريات
+      if (p && p.status === 'deleted' && !hasPurchased && !isOwner) {
+        document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">هذا المنتج لم يعد متاحًا للعرض العام (تم حذفه).</div>';
+        return;
+      }
+      // لو المشتري: نستخدم snapshot المحفوظ على عملية الشراء لو الناقص من المنتج الحي
+      if (p && p.status === 'deleted' && hasPurchased) {
+        try {
+          const pKey = 'purchases:' + (currentUser && currentUser.uid);
+          const list = (window.localCache && window.localCache.get(pKey)) || [];
+          const row = Array.isArray(list) ? list.find(x => (x.data && (x.data.projectId === projectId)) || x.projectId === projectId) : null;
+          const snap = row?.data?.snapshot || row?.snapshot;
+          if (snap) {
+            p.title = p.title || snap.title;
+            p.description = p.description || snap.description;
+            p.thumbnail = p.thumbnail || snap.thumbnail;
+            p.thumbnailDirect = p.thumbnailDirect || snap.thumbnailDirect;
+            p.filesLink = p.filesLink || snap.filesLink;
+            p.files = p.files || snap.files;
+          }
+        } catch (_) {}
+      }
       // حل صورة البائع للمنتجات القديمة مرة واحدة فقط
       if (!p.sellerPhoto) p.sellerPhoto = await resolveSellerPhoto(p);
       const isFree = p.isFree || p.price === 0;
@@ -596,7 +619,7 @@
       showLoading(true);
       try {
         const p = projectData;
-        await addDoc(collection(db, 'purchases'), {
+        const freePayload = {
           projectId,
           projectTitle: p.title,
           buyerId: currentUser.uid,
@@ -604,7 +627,7 @@
           sellerId: p.sellerId,
           amount: 0,
           status: 'owned_free',
-          // لقطة كاملة من المشروع — تبقى حتى لو حُذف الأصل
+          // لقطة كاملة — تبقى شبكياً ومحلياً حتى لو حُذف المنتج
           snapshot: {
             title: p.title,
             description: p.description,
@@ -617,7 +640,9 @@
             isFree: true
           },
           createdAt: serverTimestamp()
-        });
+        };
+        const freeRef = await addDoc(collection(db, 'purchases'), freePayload);
+        appendPurchaseToLocalCache(freeRef.id, freePayload);
         showToast('تمت الإضافة إلى مشترياتك');
         hasPurchased = true;
         renderProduct();
@@ -705,7 +730,7 @@
         const sellerNet = price - commissionAmount;
         await updateDoc(uRef, { balance: bal - price });
         try { window.localCache?.set('user:' + currentUser.uid, { ...(window.localCache?.get('user:'+currentUser.uid)||{}), balance: bal - price }); } catch(_){}
-        await addDoc(collection(db, 'purchases'), {
+        const buyPayload = {
           projectId,
           projectTitle: p.title,
           buyerId: currentUser.uid,
@@ -740,7 +765,9 @@
           },
           createdAt: serverTimestamp(),
           approvedAt: serverTimestamp()
-        });
+        };
+        const buyRef = await addDoc(collection(db, 'purchases'), buyPayload);
+        appendPurchaseToLocalCache(buyRef.id, buyPayload);
         try { await updateDoc(doc(db, 'projects', projectId), { sales: increment(1) }); } catch(e){}
         showToast('تم الشراء بنجاح من رصيدك');
         hasPurchased = true;

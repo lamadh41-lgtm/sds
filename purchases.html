@@ -78,15 +78,23 @@
         return;
       }
 
-      let allBuyDocs;
+      // الشبكة أصل — المحلي تابع (soft مرة كل جلسة). المشتريات لا تُمس عند حذف منتج.
       const pKey = 'purchases:' + user.uid;
-      const pCached = window.localCache?.get(pKey);
-      if (Array.isArray(pCached) && pCached.length) {
-        allBuyDocs = pCached;
+      let allBuyDocs = [];
+      if (window.localCache?.softFetch) {
+        const r = await window.localCache.softFetch(pKey, async () => {
+          const snap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
+          return snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        }, { sessionFlag: 'soft:purchases:' + user.uid });
+        allBuyDocs = Array.isArray(r.data) ? r.data : [];
       } else {
-        const allBuy = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
-        allBuyDocs = allBuy.docs.map(d => ({ id: d.id, data: d.data() }));
-        try { window.localCache?.set(pKey, allBuyDocs); } catch(_){}
+        const pCached = window.localCache?.get(pKey);
+        if (Array.isArray(pCached) && pCached.length) allBuyDocs = pCached;
+        else {
+          const allBuySnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
+          allBuyDocs = allBuySnap.docs.map(d => ({ id: d.id, data: d.data() }));
+          try { window.localCache?.set(pKey, allBuyDocs); } catch(_){}
+        }
       }
       const allBuy = { docs: allBuyDocs.map(x => ({ id: x.id, data: () => x.data })) };
       const receivedDocs = allBuy.docs.filter(d => ['approved', 'owned_free'].includes(d.data().status));
