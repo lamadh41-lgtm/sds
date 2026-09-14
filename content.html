@@ -98,32 +98,28 @@
           grid.innerHTML = cached.html;
         }
 
-        let qBase;
-        if (page <= 1) {
-          page = 1;
-          cursors = [null];
-          qBase = query(
-            collection(db, 'promoContent'),
-            where('type', '==', currentType),
-            orderBy('createdAt', 'desc'),
-            limit(PAGE)
-          );
-        } else {
-          const cursor = cursors[page - 1];
-          qBase = cursor
-            ? query(collection(db, 'promoContent'), where('type', '==', currentType), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE))
-            : query(collection(db, 'promoContent'), where('type', '==', currentType), orderBy('createdAt', 'desc'), limit(PAGE));
-        }
-        const snap = await getDocs(qBase);
-        if (snap.docs.length) cursors[page] = snap.docs[snap.docs.length - 1];
+        // بدون فهرس مركّب: where على type فقط ثم ترتيب الأحدث محلياً + صفحات يدوية
+        const allSnap = await getDocs(query(
+          collection(db, 'promoContent'),
+          where('type', '==', currentType),
+          limit(120)
+        ));
+        const sorted = allSnap.docs.slice().sort((a, b) => {
+          const t1 = a.data().createdAt?.toMillis?.() || a.data().createdAt?.seconds * 1000 || 0;
+          const t2 = b.data().createdAt?.toMillis?.() || b.data().createdAt?.seconds * 1000 || 0;
+          return t2 - t1; // الأحدث أولاً — الصفحة 1
+        });
+        if (page <= 1) page = 1;
+        const start = (page - 1) * PAGE;
+        const slice = sorted.slice(start, start + PAGE);
 
-        if (!snap.docs.length) {
+        if (!slice.length) {
           grid.innerHTML = `<div class="col-12 text-center text-muted py-5">لا يوجد محتوى ${currentType === 'facebook' ? 'فيسبوك' : 'يوتيوب'} بعد.</div>`;
           pager.innerHTML = '';
           return;
         }
 
-        const html = snap.docs.map(d => {
+        const html = slice.map(d => {
           const x = d.data();
           const thumb = x.thumbnail || '';
           const icon = currentType === 'facebook'
@@ -163,7 +159,7 @@
           };
         });
 
-        const hasMore = snap.docs.length >= PAGE;
+        const hasMore = start + PAGE < sorted.length;
         pager.innerHTML = `
           <button type="button" class="btn btn-sm btn-outline-secondary" id="pPrev" ${page <= 1 ? 'disabled' : ''}>السابق</button>
           <span class="align-self-center px-2">صفحة ${page} <small class="text-muted">(1 = الأحدث)</small></span>
