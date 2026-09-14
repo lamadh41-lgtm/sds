@@ -1,10 +1,10 @@
 import { 
   auth, db, storage,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged,
-  updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp, onSnapshot,
+  updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, onSnapshot,
   ref, uploadBytes, getDownloadURL
 } from './firebase.js';
-import { cacheGet, cacheSet, cachedFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, toPlain } from './localCache.js';
+import { cacheGet, cacheSet, cachedFetch, softFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, cacheRemove, toPlain } from './localCache.js';
 
 // ===== Helpers =====
 function showToast(message, type = 'success') {
@@ -357,15 +357,12 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     // Load user data from Firestore
     const userRef = doc(db, 'users', user.uid);
-    // كاش محلي لبيانات المستخدم — قراءة شبكة مرة واحدة فقط
-    const cachedUser = cacheGet(cacheUserKey(user.uid));
-    if (cachedUser && typeof cachedUser === 'object') {
-      currentUserData = cachedUser;
-    } else {
+    // كاش مرن: محلي + إعادة تحقق مرة كل جلسة (رصيد/صورة/عمولة…)
+    const { data: uData } = await softFetch(cacheUserKey(user.uid), async () => {
       const snap = await getDoc(userRef);
-      currentUserData = snap.exists() ? snap.data() : { name: user.displayName || 'مستخدم', email: user.email };
-      cacheSet(cacheUserKey(user.uid), currentUserData);
-    }
+      return snap.exists() ? snap.data() : { name: user.displayName || 'مستخدم', email: user.email };
+    }, { sessionFlag: 'soft:user:' + user.uid });
+    currentUserData = uData || { name: user.displayName || 'مستخدم', email: user.email };
 
     // Check if banned
     if (currentUserData.banned) {
@@ -386,9 +383,14 @@ onAuthStateChanged(auth, async (user) => {
           <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none" id="notifBadge">0</span>
         </button>
         <div class="dropdown-menu dropdown-menu-end notif-menu p-0" style="min-width:320px;max-height:400px;overflow-y:auto;">
-          <div class="p-2 border-bottom d-flex justify-content-between align-items-center bg-light">
-            <strong><i class="fas fa-bell me-1"></i> الإشعارات</strong>
-            <button class="btn btn-sm btn-link text-decoration-none p-0" id="markAllRead">علم الكل كمقروء</button>
+          <div class="p-2 border-bottom bg-light">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <strong><i class="fas fa-bell me-1"></i> الإشعارات</strong>
+              <button class="btn btn-sm btn-link text-decoration-none p-0" id="markAllRead">علم الكل كمقروء</button>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger w-100" id="deleteAllNotifsBtn">
+              <i class="fas fa-trash-alt me-1"></i>حذف كل الإشعارات
+            </button>
           </div>
           <div id="notifList" class="p-2"><div class="text-center text-muted small py-3">جاري التحميل...</div></div>
         </div>
@@ -428,8 +430,23 @@ onAuthStateChanged(auth, async (user) => {
     const notifBtn = document.getElementById('notifBtn');
     if (notifBtn && !notifBtn.dataset.bound) {
       notifBtn.dataset.bound = '1';
-      notifBtn.addEventListener('show.bs.dropdown', () => markNotificationsRead(user.uid));
+      notifBtn.addEventListener('show.bs.dropdown', () => {
+        // مرة كل جلسة: حدّث الإشعارات من الشبكة ثم كاش
+        loadUserNotifications(user.uid, { soft: true });
+        markNotificationsRead(user.uid);
+      });
     }
+    document.getElementById('deleteAllNotifsBtn')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!(await siteConfirm('حذف كل الإشعارات نهائيًا؟', 'حذف الإشعارات'))) return;
+      await deleteAllNotifications(user.uid);
+    });
+    document.getElementById('markAllRead')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      await markNotificationsRead(user.uid);
+    });
     initSupportWidget(user);
     // إظهار قيمة الرصيد جنب القائمة
     const bal = parseFloat(currentUserData?.balance) || 0;
@@ -633,26 +650,21 @@ document.addEventListener('click', (e) => {
 });
 
 // ===== Notifications =====
-async function loadUserNotifications(uid) {
+async function loadUserNotifications(uid, opts = {}) {
   const listEl = document.getElementById('notifList');
   const badge = document.getElementById('notifBadge');
   if (!listEl) return;
   try {
     const nKey = cacheNotifsKey(uid);
-    let notifs;
-    const cached = cacheGet(nKey);
-    if (Array.isArray(cached) && cached.length >= 0 && cached.__fromCache !== false) {
-      // من المحلي
-      notifs = cached.map(x => ({ id: x.id, data: () => x.data }));
-    } else {
+    const soft = opts.soft !== false; // افتراضي: مرونة جلسة
+    const { data: plain } = await softFetch(nKey, async () => {
       const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(40)));
-      const plain = snap.docs
+      return snap.docs
         .map(d => ({ id: d.id, data: d.data() }))
         .sort((a, b) => (b.data.createdAt?.toMillis?.() || b.data.createdAt?.__ts || 0) - (a.data.createdAt?.toMillis?.() || a.data.createdAt?.__ts || 0))
         .slice(0, 30);
-      cacheSet(nKey, plain);
-      notifs = plain.map(x => ({ id: x.id, data: () => x.data }));
-    }
+    }, { sessionFlag: 'soft:notifs:' + uid, force: !!opts.force });
+    let notifs = (Array.isArray(plain) ? plain : []).map(x => ({ id: x.id, data: () => x.data }));
     notifs = notifs
       .sort((a, b) => (b.data().createdAt?.toMillis?.() || b.data().createdAt?.__ts || 0) - (a.data().createdAt?.toMillis?.() || a.data().createdAt?.__ts || 0))
       .slice(0, 30);
@@ -734,6 +746,40 @@ async function markNotificationsRead(uid) {
     });
   } catch (e) { console.error(e); }
 }
+
+async function deleteAllNotifications(uid) {
+  try {
+    showLoading(true, 'جاري حذف الإشعارات...');
+    const nKey = cacheNotifsKey(uid);
+    let plain = cacheGet(nKey);
+    if (!Array.isArray(plain) || !plain.length) {
+      const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid), limit(100)));
+      plain = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+    }
+    if (!plain.length) {
+      showToast('لا توجد إشعارات');
+      return;
+    }
+    // حذف على دفعات
+    const ids = plain.map(x => x.id).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 20) {
+      const chunk = ids.slice(i, i + 20);
+      await Promise.all(chunk.map(id => deleteDoc(doc(db, 'notifications', id))));
+    }
+    cacheSet(nKey, []);
+    try { sessionStorage.removeItem('soft:notifs:' + uid); } catch {}
+    const listEl = document.getElementById('notifList');
+    if (listEl) listEl.innerHTML = '<div class="text-center text-muted small py-3">لا توجد إشعارات</div>';
+    document.getElementById('notifBadge')?.classList.add('d-none');
+    showToast('تم حذف كل الإشعارات');
+  } catch (e) {
+    console.error(e);
+    showToast('تعذر الحذف: ' + (e.message || e), 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
 
 // ===== Floating Support Widget =====
 let supportOpen = false;
@@ -898,13 +944,18 @@ async function markSupportRead(uid) {
 // ===== News Bar (dismiss محلي — يظهر تاني لو الخبر اتغيّر) =====
 async function loadNewsBar() {
   try {
-    let data = cacheGet(cacheNewsKey());
-    if (!data) {
+    // مرونة: كاش محلي + إعادة تحقق مرة كل جلسة (لو الخبر اتغيّر يتحدّث)
+    const { data } = await softFetch(cacheNewsKey(), async () => {
       const snap = await getDoc(doc(db, 'settings', 'news'));
-      if (!snap.exists()) return;
-      data = { active: !!snap.data().active, text: snap.data().text || '' };
-      cacheSet(cacheNewsKey(), data);
-    }
+      if (!snap.exists()) return { active: false, text: '', updatedAt: null };
+      const d = snap.data();
+      return {
+        active: !!d.active,
+        text: d.text || '',
+        updatedAt: d.updatedAt?.toMillis?.() || d.updatedAt || null
+      };
+    }, { sessionFlag: 'soft:news' });
+    if (!data) return;
     if (!data.active || !data.text) {
       document.getElementById('newsBar')?.remove();
       document.getElementById('newsShowBtn')?.remove();

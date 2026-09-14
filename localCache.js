@@ -75,6 +75,49 @@ export function cacheSet(key, data) {
   }
 }
 
+
+/** عمر الكاش بالميلي ثانية من وقت الحفظ */
+export function cacheAge(key) {
+  try {
+    const raw = localStorage.getItem(PREFIX + key);
+    if (!raw) return null;
+    const parsed = safeParse(raw);
+    if (!parsed || !parsed.t) return null;
+    return Date.now() - parsed.t;
+  } catch { return null; }
+}
+
+/**
+ * جلب مرن: يستخدم المحلي، ويعيد التحقق من الشبكة مرة لكل جلسة (أو بعد maxAge)
+ * - لو مفيش كاش: قراءة شبكة + حفظ
+ * - لو فيه كاش ولم تُتحقق الجلسة بعد: قراءة شبكة ومقارنة/تحديث ثم تعليم الجلسة
+ * - لو اتحقق في الجلسة: محلي فقط (صفر قراءات)
+ */
+export async function softFetch(key, fetcher, { sessionFlag, maxAgeMs = null, force = false } = {}) {
+  const flag = sessionFlag || ('soft:' + key);
+  let sessDone = false;
+  try { sessDone = sessionStorage.getItem(flag) === '1'; } catch {}
+
+  const cached = cacheGet(key);
+  const age = cacheAge(key);
+  const expired = maxAgeMs != null && age != null && age > maxAgeMs;
+
+  if (!force && cached != null && sessDone && !expired) {
+    return { data: cached, fromCache: true, revalidated: false };
+  }
+
+  // مفيش كاش أو لسه ما اتحققناش في الجلسة أو منتهي
+  try {
+    const data = await fetcher();
+    if (data !== undefined && data !== null) cacheSet(key, data);
+    try { sessionStorage.setItem(flag, '1'); } catch {}
+    return { data, fromCache: false, revalidated: true };
+  } catch (e) {
+    if (cached != null) return { data: cached, fromCache: true, revalidated: false, error: e };
+    throw e;
+  }
+}
+
 export function cacheRemove(key) {
   try { localStorage.removeItem(PREFIX + key); } catch {}
 }
@@ -158,6 +201,8 @@ if (typeof window !== 'undefined') {
     remove: cacheRemove,
     removePrefix: cacheRemovePrefix,
     fetch: cachedFetch,
+    softFetch: softFetch,
+    age: cacheAge,
     upsertInList: cacheUpsertInList,
     toPlain,
     revive,

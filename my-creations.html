@@ -246,6 +246,13 @@
           showLoading(true);
           try {
             await updateDoc(doc(db, 'projects', btn.dataset.id), { status: 'deleted', deletedAt: serverTimestamp() });
+            // امسح الكاش المحلي عشان المنتج يختفي من قائمة المشاريع فورًا
+            try {
+              window.localCache?.remove('product:' + btn.dataset.id);
+              window.localCache?.removePrefix('projects:');
+              window.localCache?.removePrefix('sellerProds:');
+              window.localCache?.removePrefix('myProjects:');
+            } catch (_) {}
             showToast('تم الحذف');
             await loadMine();
           } catch (e) { showToast(e.message, 'error'); }

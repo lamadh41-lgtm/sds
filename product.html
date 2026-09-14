@@ -157,6 +157,12 @@
         let projectDataCached = (window.localCache && window.localCache.get('product:' + projectId)) || null;
         let snap = null;
         if (projectDataCached && projectDataCached.id) {
+          const st = projectDataCached.status || 'active';
+          if (st === 'deleted') {
+            try { window.localCache?.remove('product:' + projectId); } catch(_){}
+            document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">هذا المنتج لم يعد متاحًا (تم حذفه).</div>';
+            return;
+          }
           projectData = projectDataCached;
           renderProduct();
           // لا قراءة — من المحلي
@@ -168,6 +174,11 @@
           return;
         }
         projectData = { id: snap.id, ...snap.data() };
+        if (projectData.status === 'deleted') {
+          try { window.localCache?.remove('product:' + projectId); } catch(_){}
+          document.getElementById('productContent').innerHTML = '<div class="alert alert-warning">هذا المنتج لم يعد متاحًا (تم حذفه). يمكن للمشتري السابق رؤيته من مشترياته إن وُجدت.</div>';
+          return;
+        }
         try { window.localCache?.set('product:' + projectId, projectData); } catch(_){}
         renderProduct();
       } catch (err) {
@@ -259,30 +270,66 @@
     }
 
     
-    function bindProductShareLink() {
-      const btn = document.getElementById('copyProductLinkBtn');
-      if (!btn || btn.dataset.bound) return;
-      btn.dataset.bound = '1';
-      btn.onclick = async () => {
-        const full = location.origin + location.pathname.replace(/[^/]*$/, '') + 'product.html?id=' + encodeURIComponent(projectId);
-        const shortLabel = 'Misran_store/' + projectId;
+    function getProductShareUrl() {
+      return location.origin + location.pathname.replace(/[^/]*$/, '') + 'product.html?id=' + encodeURIComponent(projectId);
+    }
+    function getProductShareText() {
+      const title = (projectData && projectData.title) || 'منتج';
+      return title + ' — متجر مصران\n' + getProductShareUrl();
+    }
+    async function copyShareUrl() {
+      const full = getProductShareUrl();
+      const shortLabel = 'Misran_store/' + projectId;
+      try {
+        await navigator.clipboard.writeText(full);
+        showToast('تم نسخ الرابط: ' + shortLabel);
+      } catch {
         try {
-          await navigator.clipboard.writeText(full);
-          showToast('تم نسخ الرابط: ' + shortLabel);
+          const ta = document.createElement('textarea');
+          ta.value = full;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+          showToast('تم نسخ الرابط');
         } catch {
-          try {
-            const ta = document.createElement('textarea');
-            ta.value = full;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            ta.remove();
-            showToast('تم نسخ الرابط');
-          } catch {
-            showToast('تعذر النسخ', 'error');
-          }
+          showToast('تعذر النسخ', 'error');
         }
-      };
+      }
+    }
+    function openShareApp(app) {
+      const url = encodeURIComponent(getProductShareUrl());
+      const text = encodeURIComponent(getProductShareText());
+      let href = '';
+      if (app === 'whatsapp') href = 'https://wa.me/?text=' + text;
+      else if (app === 'telegram') href = 'https://t.me/share/url?url=' + url + '&text=' + encodeURIComponent((projectData && projectData.title) || 'متجر مصران');
+      else if (app === 'facebook') href = 'https://www.facebook.com/sharer/sharer.php?u=' + url;
+      else if (app === 'twitter') href = 'https://twitter.com/intent/tweet?url=' + url + '&text=' + encodeURIComponent((projectData && projectData.title) || '');
+      else if (app === 'messenger') href = 'https://www.facebook.com/dialog/send?link=' + url + '&app_id=291494419107518&redirect_uri=' + url;
+      else if (app === 'more') {
+        if (navigator.share) {
+          navigator.share({ title: (projectData && projectData.title) || 'متجر مصران', text: getProductShareText(), url: getProductShareUrl() }).catch(() => {});
+          return;
+        }
+        copyShareUrl();
+        return;
+      }
+      if (href) window.open(href, '_blank', 'noopener,noreferrer');
+    }
+    function bindProductShareLink() {
+      const sheet = document.getElementById('shareSheet');
+      const openBtn = document.getElementById('openShareSheetBtn');
+      if (!openBtn || openBtn.dataset.bound) return;
+      openBtn.dataset.bound = '1';
+      const openSheet = () => { if (sheet) sheet.classList.remove('d-none'); };
+      const closeSheet = () => { if (sheet) sheet.classList.add('d-none'); };
+      openBtn.onclick = openSheet;
+      document.getElementById('closeShareSheetBtn')?.addEventListener('click', closeSheet);
+      document.getElementById('shareSheetBackdrop')?.addEventListener('click', closeSheet);
+      document.getElementById('copyProductLinkBtn')?.addEventListener('click', () => { copyShareUrl(); });
+      document.querySelectorAll('.share-app-btn').forEach(b => {
+        b.addEventListener('click', () => openShareApp(b.dataset.app));
+      });
     }
 
     async function renderProduct() {
@@ -359,14 +406,32 @@
             <p style="white-space:pre-wrap;">${(typeof linkifyText==='function'?linkifyText(p.description):p.description) || 'لا يوجد وصف'}</p>
             <hr>
             ${filesSection}
-            <div class="card border-0 shadow-sm mt-3 mb-2" style="background:linear-gradient(135deg,#fff8e6,#fff);">
-              <div class="card-body py-3">
-                <div class="small text-muted mb-1"><i class="fas fa-link me-1"></i>رابط المنتج (قابل للنسخ والمشاركة)</div>
-                <div class="d-flex flex-wrap align-items-center gap-2">
-                  <code id="productShareCode" class="flex-grow-1 p-2 rounded bg-white border" style="direction:ltr;text-align:left;font-size:0.9rem;">Misran_store/${projectId}</code>
-                  <button type="button" class="btn btn-sm btn-primary" id="copyProductLinkBtn"><i class="fas fa-copy me-1"></i>نسخ الرابط</button>
+            <div class="mt-3 mb-2">
+              <button type="button" class="btn btn-outline-primary w-100" id="openShareSheetBtn">
+                <i class="fas fa-share-alt me-2"></i>مشاركة
+              </button>
+            </div>
+            <div id="shareSheet" class="share-sheet d-none">
+              <div class="share-sheet-backdrop" id="shareSheetBackdrop"></div>
+              <div class="share-sheet-panel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="mb-0"><i class="fas fa-share-alt me-2"></i>مشاركة المنشور</h6>
+                  <button type="button" class="btn-close" id="closeShareSheetBtn" aria-label="إغلاق"></button>
                 </div>
-                <div class="form-text mt-1">الرابط الكامل يُنسخ عند الضغط — يمكن فتحه من أي مكان لعرض هذا المنتج.</div>
+                <div class="small text-muted mb-2">الرابط المختصر</div>
+                <code id="productShareCode" class="d-block p-2 rounded bg-light border mb-3" style="direction:ltr;text-align:left;font-size:0.85rem;">Misran_store/${projectId}</code>
+                <div class="d-grid gap-2 mb-3">
+                  <button type="button" class="btn btn-primary" id="copyProductLinkBtn"><i class="fas fa-copy me-2"></i>نسخ الرابط</button>
+                </div>
+                <div class="small text-muted mb-2">مشاركة عبر التطبيقات</div>
+                <div class="share-apps-grid">
+                  <button type="button" class="share-app-btn" data-app="whatsapp" title="واتساب"><i class="fab fa-whatsapp" style="color:#25D366"></i><span>واتساب</span></button>
+                  <button type="button" class="share-app-btn" data-app="telegram" title="تلجرام"><i class="fab fa-telegram" style="color:#229ED9"></i><span>تلجرام</span></button>
+                  <button type="button" class="share-app-btn" data-app="facebook" title="فيسبوك"><i class="fab fa-facebook" style="color:#1877F2"></i><span>فيسبوك</span></button>
+                  <button type="button" class="share-app-btn" data-app="twitter" title="X"><i class="fab fa-twitter"></i><span>X</span></button>
+                  <button type="button" class="share-app-btn" data-app="messenger" title="ماسنجر"><i class="fab fa-facebook-messenger" style="color:#0084FF"></i><span>ماسنجر</span></button>
+                  <button type="button" class="share-app-btn" data-app="more" title="المزيد"><i class="fas fa-ellipsis-h"></i><span>أخرى</span></button>
+                </div>
               </div>
             </div>
             <div id="actionArea" class="mt-3">${actionBtn}</div>

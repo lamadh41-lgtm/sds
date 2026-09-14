@@ -965,3 +965,59 @@ body {
   font-weight: 700;
   color: #d4af37;
 }
+
+
+/* ===== Share sheet ===== */
+.share-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 1080;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.share-sheet.d-none { display: none !important; }
+.share-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+}
+.share-sheet-panel {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 1.25rem 1.25rem 1.5rem;
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.15);
+  animation: shareUp 0.22s ease-out;
+}
+@keyframes shareUp {
+  from { transform: translateY(40%); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.share-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+.share-app-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.85rem 0.4rem;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.share-app-btn:hover { background: #f0f4ff; transform: translateY(-1px); }
+.share-app-btn i { font-size: 1.6rem; }
+.share-app-btn span { font-size: 0.75rem; color: #444; }
+@media (min-width: 768px) {
+  .share-sheet { align-items: center; }
+  .share-sheet-panel { border-radius: 16px; margin: 1rem; }
+}
