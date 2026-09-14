@@ -33,20 +33,36 @@ function formatSaleRemaining(p) {
   const ends = p.saleEndsAt?.toMillis?.() || p.saleEndsAt?.__ts || new Date(p.saleEndsAt).getTime();
   let ms = ends - Date.now();
   if (ms <= 0) return 'انتهى العرض';
-  const h = Math.floor(ms / 3600000);
-  const d = Math.floor(h / 24);
-  const hours = h % 24;
-  const m = Math.floor((ms % 3600000) / 60000);
-  if (d > 0) return d + ' يوم' + (hours ? ' و ' + hours + ' ساعة' : '');
+  const totalMin = Math.floor(ms / 60000);
+  const d = Math.floor(totalMin / (60 * 24));
+  const h = Math.floor((totalMin % (60 * 24)) / 60);
+  const m = totalMin % 60;
+  if (d > 0) return d + ' يوم' + (h ? ' و ' + h + ' ساعة' : '');
   if (h > 0) return h + ' ساعة' + (m ? ' و ' + m + ' دقيقة' : '');
   return Math.max(1, m) + ' دقيقة';
 }
+/** مضاعف مدة العرض بالميلي ثانية */
+function saleDurationToMs(val, unit) {
+  const n = parseFloat(val) || 0;
+  if (unit === 'minutes') return n * 60000;
+  if (unit === 'hours') return n * 3600000;
+  if (unit === 'months') return n * 30 * 86400000;
+  return n * 86400000; // days
+}
+window.saleDurationToMs = saleDurationToMs;
+
 function priceHtmlForProduct(p) {
   const cur = parseFloat(p.price) || 0;
   if (cur <= 0) return '<span class="badge bg-success">مجاني</span>';
   if (isProductOnSale(p)) {
     const orig = parseFloat(p.originalPrice) || 0;
-    return `<span class="text-decoration-line-through text-muted me-1">${orig} ج.م</span><span class="text-danger fw-bold">${cur} ج.م</span> <span class="badge bg-danger">عرض</span> <small class="text-muted">تبقى ${formatSaleRemaining(p)}</small>`;
+    const left = formatSaleRemaining(p);
+    return `<span class="sale-price-wrap d-inline-flex flex-wrap align-items-center gap-2">
+      <span class="sale-old-price text-decoration-line-through text-muted" style="text-decoration-thickness:2px;font-size:0.95em;">${orig} ج.م</span>
+      <span class="sale-new-price text-danger fw-bold" style="font-size:1.15em;">${cur} ج.م</span>
+      <span class="badge bg-danger">عرض</span>
+      <span class="sale-remain small text-muted"><i class="fas fa-clock me-1"></i>تبقى ${left}</span>
+    </span>`;
   }
   return `<span class="fw-bold text-primary">${cur} ج.م</span>`;
 }
@@ -607,12 +623,23 @@ function collectProjectFormData() {
   let saleDurationUnit = null;
   let salePending = false;
   const saleEnabled = document.getElementById('projSaleEnabled')?.checked;
-  if (saleEnabled && price > 0) {
+  if (saleEnabled && (price > 0 || document.getElementById('projSaleOfferPrice'))) {
+    // سعر العرض من الحقل المخصص إن وُجد، وإلا من سعر المنتج
+    const offerEl = document.getElementById('projSaleOfferPrice');
+    if (offerEl && offerEl.value !== '') {
+      price = parseFloat(offerEl.value) || 0;
+      const mainPrice = document.getElementById('projPrice');
+      if (mainPrice) mainPrice.value = price;
+    }
     const orig = parseFloat(document.getElementById('projOriginalPrice')?.value) || 0;
     const durVal = parseFloat(document.getElementById('projSaleDuration')?.value) || 0;
     const durUnit = document.getElementById('projSaleUnit')?.value || 'days';
+    if (!(price > 0)) {
+      showToast('أدخل سعر العرض', 'error');
+      return null;
+    }
     if (!(orig > price)) {
-      showToast('السعر الأصلي يجب أن يكون أكبر من سعر العرض', 'error');
+      showToast('السعر بعد انتهاء العرض يجب أن يكون أكبر من سعر العرض', 'error');
       return null;
     }
     if (!(durVal > 0)) {

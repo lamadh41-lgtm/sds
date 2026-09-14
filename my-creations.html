@@ -6,12 +6,15 @@
   <title>إبداعاتي | متجر مصران</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="styles.css" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
     <div class="container">
-      <a class="navbar-brand" href="index.html"><i class="fas fa-code me-2"></i>متجر مصران</a>
+      <a class="navbar-brand" href="index.html"><i class="fas fa-ankh me-2"></i>متجر مصران</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -265,6 +268,8 @@
           document.getElementById('editActiveDesc').value = p.description || '';
           document.getElementById('editOldThumbFileId').value = p.thumbnailFileId || '';
           document.getElementById('editPriceValue').value = p.price || 0;
+          const offerInp = document.getElementById('editSaleOfferPrice');
+          if (offerInp) offerInp.value = p.price || 0;
           // قاعدة العرض: يمكن التعديل أثناء العرض، لكن بعد تعديل العرض يُفرض انتظار 24 ساعة على نفس المنتج
           const lastOfferEdit = p.lastOfferEditAt?.toMillis?.() || p.lastOfferEditAt?.__ts || (p.lastOfferEditAt ? new Date(p.lastOfferEditAt).getTime() : 0);
           const cooldownMs = 24 * 3600000;
@@ -458,18 +463,24 @@
           showToast('لا يمكن تعديل العرض الآن. متبقي حوالي ' + h + ' ساعة', 'error');
           return;
         }
+        const offerInp = document.getElementById('editSaleOfferPrice');
+        if (offerInp && offerInp.value !== '') {
+          price = parseFloat(offerInp.value) || 0;
+          payload.price = price;
+          payload.isFree = price === 0;
+        }
         const orig = parseFloat(document.getElementById('editOriginalPrice')?.value) || 0;
         const durVal = parseFloat(document.getElementById('editSaleDuration')?.value) || 0;
         const unit = document.getElementById('editSaleUnit')?.value || 'days';
-        if (!(orig > price)) { showToast('السعر الأصلي يجب أن يكون أكبر من سعر العرض', 'error'); return; }
+        if (!(orig > price)) { showToast('السعر بعد انتهاء العرض يجب أن يكون أكبر من سعر العرض', 'error'); return; }
         if (!(durVal > 0)) { showToast('حدد مدة العرض', 'error'); return; }
         const conf = (typeof siteConfirm === 'function')
           ? await siteConfirm('بعد الحفظ يبدأ/يُحدَّث العرض. لن تستطيع تعديل العرض مرة أخرى إلا بعد 24 ساعة على هذا المنتج. متابع؟', 'تأكيد العرض')
           : confirm('بعد الحفظ: انتظار 24 ساعة قبل تعديل العرض مجدداً على هذا المنتج. متابع؟');
         if (!conf) return;
-        const mult = unit === 'hours' ? 3600000 : (unit === 'months' ? 30*86400000 : 86400000);
+        const mult = (typeof window.saleDurationToMs === 'function') ? window.saleDurationToMs(durVal, unit) : (unit === 'minutes' ? durVal*60000 : unit === 'hours' ? durVal*3600000 : unit === 'months' ? durVal*30*86400000 : durVal*86400000);
         payload.originalPrice = orig;
-        payload.saleEndsAt = new Date(Date.now() + durVal * mult);
+        payload.saleEndsAt = new Date(Date.now() + mult);
         payload.salePending = false;
         payload.saleDurationValue = durVal;
         payload.saleDurationUnit = unit;
@@ -551,19 +562,23 @@
         <hr>
         <div id="editPriceSection">
           <div class="mb-3">
-            <label class="form-label">سعر البيع الحالي (ج.م)</label>
+            <label class="form-label">السعر الحالي / سعر العرض (ج.م)</label>
             <input type="number" class="form-control" id="editPriceValue" min="0" step="any">
           </div>
           <div class="form-check mb-2">
             <input class="form-check-input" type="checkbox" id="editSaleEnabled">
-            <label class="form-check-label" for="editSaleEnabled">تفعيل عرض جديد</label>
+            <label class="form-check-label" for="editSaleEnabled">تفعيل / تعديل عرض</label>
           </div>
           <div id="editSaleFields" class="d-none border rounded p-2">
-            <div class="mb-2">
-              <label class="form-label small">السعر الأصلي</label>
-              <input type="number" class="form-control form-control-sm" id="editOriginalPrice" min="0" step="any">
-            </div>
-            <div class="row g-2">
+            <div class="row g-2 align-items-end">
+              <div class="col-6">
+                <label class="form-label small fw-bold text-danger">سعر العرض *</label>
+                <input type="number" class="form-control form-control-sm" id="editSaleOfferPrice" min="0" step="any" placeholder="يظهر أثناء العرض">
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-bold">السعر بعد انتهاء العرض *</label>
+                <input type="number" class="form-control form-control-sm" id="editOriginalPrice" min="0" step="any" placeholder="يرجع بعد الانتهاء">
+              </div>
               <div class="col-6">
                 <label class="form-label small">المدة</label>
                 <input type="number" class="form-control form-control-sm" id="editSaleDuration" min="1" value="7">
@@ -571,13 +586,14 @@
               <div class="col-6">
                 <label class="form-label small">الوحدة</label>
                 <select class="form-select form-select-sm" id="editSaleUnit">
+                  <option value="minutes">دقائق</option>
                   <option value="hours">ساعات</option>
                   <option value="days" selected>أيام</option>
                   <option value="months">شهور</option>
                 </select>
               </div>
             </div>
-            <small class="text-muted">العرض يبدأ فور الحفظ. بعد أي تعديل عرض على هذا المنتج يُمنع تعديل العرض لمدة 24 ساعة. تعديل السعر العادي متاح دائماً.</small>
+            <small class="text-muted d-block mt-2">العرض يبدأ فور الحفظ. بعد تعديل العرض: انتظار 24 ساعة على نفس المنتج. تعديل السعر العادي متاح دائماً.</small>
           </div>
         </div>
       </div>
