@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>المحتوى | محرك مصران</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="styles.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
+    <div class="container">
+      <a class="navbar-brand js-site-brand" href="index.html"><i class="fas fa-ankh me-2"></i>محرك مصران</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navMenu">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="projects.html">المشاريع</a></li>
+          <li class="nav-item"><a class="nav-link nav-engine-download" href="#"><i class="fas fa-download me-1"></i>تحميل المحرك</a></li>
+          <li class="nav-item"><a class="nav-link active" href="content.html"><i class="fas fa-play-circle me-1"></i>المحتوى</a></li>
+          <li class="nav-item"><a class="nav-link" href="index.html#about">عن المحرك</a></li>
+          <li class="nav-item"><a class="nav-link" href="support.html"><i class="fas fa-headset me-1"></i>الدعم <span class="nav-support-badge support-badge-dot d-none"></span></a></li>
+        </ul>
+        <div class="d-flex align-items-center gap-3" id="authArea"></div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container py-4">
+    <h2 class="section-title mb-3">المحتوى التقديمي</h2>
+    <div class="d-flex flex-wrap gap-2 justify-content-center mb-4">
+      <button type="button" class="btn btn-danger promo-tab active" data-type="youtube" id="tabYoutube">
+        <i class="fab fa-youtube me-1"></i>يوتيوب
+      </button>
+      <button type="button" class="btn btn-outline-primary promo-tab" data-type="facebook" id="tabFacebook">
+        <i class="fab fa-facebook me-1"></i>فيسبوك
+      </button>
+    </div>
+    <div id="promoGrid" class="row g-3">
+      <div class="col-12 text-center text-muted py-5">جاري التحميل...</div>
+    </div>
+    <div class="d-flex justify-content-center gap-2 mt-4" id="promoPager"></div>
+  </div>
+
+  <div class="modal fade" id="promoDescModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="promoDescTitle">الوصف</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="promoDescBody" style="white-space:pre-wrap;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module">
+    import { db, collection, getDocs, query, where, orderBy, limit, startAfter } from './firebase.js';
+    import './app.js';
+    import { softFetch, networkInvalidate, cacheGet, cacheSet } from './localCache.js';
+
+    let currentType = 'youtube';
+    let page = 1;
+    const PAGE = 9;
+    let cursors = [null];
+
+    document.querySelectorAll('.promo-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.promo-tab').forEach(b => {
+          b.classList.remove('active', 'btn-danger', 'btn-primary');
+          if (b.dataset.type === 'youtube') b.classList.add('btn-outline-danger');
+          else b.classList.add('btn-outline-primary');
+        });
+        btn.classList.remove('btn-outline-danger', 'btn-outline-primary');
+        if (btn.dataset.type === 'youtube') btn.classList.add('btn-danger', 'active');
+        else btn.classList.add('btn-primary', 'active');
+        currentType = btn.dataset.type;
+        loadPromo(1);
+      });
+    });
+
+    async function loadPromo(p) {
+      page = p || 1;
+      const grid = document.getElementById('promoGrid');
+      const pager = document.getElementById('promoPager');
+      grid.innerHTML = '<div class="col-12 text-center text-muted py-4">جاري التحميل...</div>';
+      try {
+        // شبكة أصل مع كاش تابع لكل نوع+صفحة
+        const cacheKey = `promo:${currentType}:p${page}`;
+        const cached = cacheGet(cacheKey);
+        if (cached && cached.html) {
+          grid.innerHTML = cached.html;
+        }
+
+        let qBase;
+        if (page <= 1) {
+          page = 1;
+          cursors = [null];
+          qBase = query(
+            collection(db, 'promoContent'),
+            where('type', '==', currentType),
+            orderBy('createdAt', 'desc'),
+            limit(PAGE)
+          );
+        } else {
+          const cursor = cursors[page - 1];
+          qBase = cursor
+            ? query(collection(db, 'promoContent'), where('type', '==', currentType), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE))
+            : query(collection(db, 'promoContent'), where('type', '==', currentType), orderBy('createdAt', 'desc'), limit(PAGE));
+        }
+        const snap = await getDocs(qBase);
+        if (snap.docs.length) cursors[page] = snap.docs[snap.docs.length - 1];
+
+        if (!snap.docs.length) {
+          grid.innerHTML = `<div class="col-12 text-center text-muted py-5">لا يوجد محتوى ${currentType === 'facebook' ? 'فيسبوك' : 'يوتيوب'} بعد.</div>`;
+          pager.innerHTML = '';
+          return;
+        }
+
+        const html = snap.docs.map(d => {
+          const x = d.data();
+          const thumb = x.thumbnail || '';
+          const icon = currentType === 'facebook'
+            ? '<i class="fab fa-facebook fa-2x text-primary"></i>'
+            : '<i class="fab fa-youtube fa-2x text-danger"></i>';
+          return `<div class="col-md-6 col-lg-4">
+            <div class="project-card h-100">
+              <div class="position-relative">
+                ${thumb
+                  ? `<img src="${thumb}" class="project-thumb" alt="">`
+                  : `<div class="d-flex align-items-center justify-content-center bg-light" style="aspect-ratio:16/9">${icon}</div>`}
+              </div>
+              <div class="project-body">
+                <div class="project-title mb-2">${x.title || ''}</div>
+                <div class="d-flex flex-wrap gap-2 mt-auto">
+                  <button type="button" class="btn btn-sm btn-outline-secondary promo-desc-btn"
+                    data-title="${(x.title || '').replace(/"/g, '&quot;')}"
+                    data-desc="${(x.description || 'لا يوجد وصف').replace(/"/g, '&quot;')}">
+                    <i class="fas fa-align-right me-1"></i>عرض الوصف
+                  </button>
+                  <a class="btn btn-sm btn-primary-custom text-dark" href="${x.videoUrl || '#'}" target="_blank" rel="noopener">
+                    <i class="fas fa-play me-1"></i>تشغيل المحتوى
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+        grid.innerHTML = html;
+        try { cacheSet(cacheKey, { html }); } catch (_) {}
+
+        grid.querySelectorAll('.promo-desc-btn').forEach(btn => {
+          btn.onclick = () => {
+            document.getElementById('promoDescTitle').textContent = btn.dataset.title || 'الوصف';
+            document.getElementById('promoDescBody').textContent = btn.dataset.desc || '';
+            new bootstrap.Modal(document.getElementById('promoDescModal')).show();
+          };
+        });
+
+        const hasMore = snap.docs.length >= PAGE;
+        pager.innerHTML = `
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="pPrev" ${page <= 1 ? 'disabled' : ''}>السابق</button>
+          <span class="align-self-center px-2">صفحة ${page} <small class="text-muted">(1 = الأحدث)</small></span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="pNext" ${hasMore ? '' : 'disabled'}>التالي</button>`;
+        document.getElementById('pPrev')?.addEventListener('click', () => loadPromo(page - 1));
+        document.getElementById('pNext')?.addEventListener('click', () => loadPromo(page + 1));
+      } catch (e) {
+        console.error(e);
+        grid.innerHTML = `<div class="col-12 alert alert-danger">${e.message || e}
+          ${String(e.message||'').includes('index') ? '<br><small>افتح رابط الفهرس من Console في Firebase إن ظهر.</small>' : ''}
+        </div>`;
+      }
+    }
+
+    loadPromo(1);
+  </script>
+</body>
+</html>

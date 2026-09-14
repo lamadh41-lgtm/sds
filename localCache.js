@@ -105,10 +105,10 @@ export function cacheAge(key) {
 }
 
 /**
- * جلب مرن: يستخدم المحلي، ويعيد التحقق من الشبكة مرة لكل جلسة (أو بعد maxAge)
- * - لو مفيش كاش: قراءة شبكة + حفظ
- * - لو فيه كاش ولم تُتحقق الجلسة بعد: قراءة شبكة ومقارنة/تحديث ثم تعليم الجلسة
- * - لو اتحقق في الجلسة: محلي فقط (صفر قراءات)
+ * جلب مرن — الشبكة أصل، الكاش تابع فقط:
+ * - يعرض/يرجع كاش بسرعة إن وُجد
+ * - يعيد التحقق من الشبكة مرة كل جلسة (أو عند force / انتهاء maxAge)
+ * - بعد أي كتابة: استدعِ networkInvalidate حتى لا يبقى كاش قديم يحجب الحقيقة
  */
 export async function softFetch(key, fetcher, { sessionFlag, maxAgeMs = null, force = false } = {}) {
   const flag = sessionFlag || ('soft:' + key);
@@ -119,20 +119,56 @@ export async function softFetch(key, fetcher, { sessionFlag, maxAgeMs = null, fo
   const age = cacheAge(key);
   const expired = maxAgeMs != null && age != null && age > maxAgeMs;
 
+  // كاش فقط إذا تحققت الشبكة في هذه الجلسة ولم يُطلب force ولم ينتهِ العمر
   if (!force && cached != null && sessDone && !expired) {
     return { data: cached, fromCache: true, revalidated: false };
   }
 
-  // مفيش كاش أو لسه ما اتحققناش في الجلسة أو منتهي
   try {
     const data = await fetcher();
     if (data !== undefined && data !== null) cacheSet(key, data);
+    else cacheRemove(key); // الشبكة قالت فاضي → امسح التابع
     try { sessionStorage.setItem(flag, '1'); } catch {}
     return { data, fromCache: false, revalidated: true };
   } catch (e) {
+    // عند فشل الشبكة فقط: اسمح بالكاش كاحتياطي عرض
     if (cached != null) return { data: cached, fromCache: true, revalidated: false, error: e };
     throw e;
   }
+}
+
+/**
+ * بعد أي كتابة على الشبكة: امسح الكاش التابع + علم الجلسة لإجبار إعادة التحقق
+ * هذا يمنع سعر/عرض/شات/شارات قديمة من الظهور بعد التعديل
+ */
+export function networkInvalidate(...keysOrPrefixes) {
+  for (const k of keysOrPrefixes) {
+    if (!k) continue;
+    if (String(k).endsWith(':') || String(k).endsWith('*')) {
+      const pref = String(k).replace(/\*$/, '');
+      cacheRemovePrefix(pref);
+      // امسح soft flags المتعلقة
+      try {
+        const toDel = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const sk = sessionStorage.key(i);
+          if (sk && sk.startsWith('soft:') && sk.includes(pref.replace(/:$/, ''))) toDel.push(sk);
+        }
+        toDel.forEach(sk => sessionStorage.removeItem(sk));
+      } catch {}
+    } else {
+      cacheRemove(k);
+      try {
+        sessionStorage.removeItem('soft:' + k);
+        sessionStorage.removeItem('softFetch:' + k);
+      } catch {}
+    }
+  }
+  // مشاريع عامة
+  try {
+    sessionStorage.removeItem('soft:projects');
+    sessionStorage.removeItem('soft:news');
+  } catch {}
 }
 
 export function cacheRemove(key) {
@@ -166,19 +202,24 @@ function cacheEvictOldest(n = 3) {
 }
 
 /**
- * جلب مع كاش: لو موجود محلياً يرجّع فوراً بدون شبكة
- * force=true يفرض قراءة جديدة ثم يحدّث الكاش
+ * جلب مع كاش — افتراضياً يعيد التحقق من الشبكة (الكاش للعرض الاحتياطي فقط).
+ * skipNetwork=true فقط لعرض لحظي غير حرج (ثم يُفضّل softFetch).
+ * بعد الكتابة: networkInvalidate(key)
  */
-export async function cachedFetch(key, fetcher, { force = false } = {}) {
-  if (!force) {
-    const hit = cacheGet(key);
-    if (hit !== null && hit !== undefined) {
-      return { data: hit, fromCache: true };
-    }
+export async function cachedFetch(key, fetcher, { force = true, skipNetwork = false } = {}) {
+  const hit = cacheGet(key);
+  if (skipNetwork && !force && hit !== null && hit !== undefined) {
+    return { data: hit, fromCache: true };
   }
-  const data = await fetcher();
-  if (data !== undefined && data !== null) cacheSet(key, data);
-  return { data, fromCache: false };
+  try {
+    const data = await fetcher();
+    if (data !== undefined && data !== null) cacheSet(key, data);
+    else cacheRemove(key);
+    return { data, fromCache: false };
+  } catch (e) {
+    if (hit !== null && hit !== undefined) return { data: hit, fromCache: true, error: e };
+    throw e;
+  }
 }
 
 /** دمج عنصر في قائمة مخزنة محلياً (مثلاً بعد إضافة مشروع) */
@@ -217,6 +258,8 @@ if (typeof window !== 'undefined') {
     set: cacheSet,
     remove: cacheRemove,
     removePrefix: cacheRemovePrefix,
+    invalidate: networkInvalidate,
+    networkInvalidate,
     fetch: cachedFetch,
     softFetch: softFetch,
     age: cacheAge,
@@ -243,6 +286,6 @@ if (typeof window !== 'undefined') {
 }
 
 export default {
-  cacheGet, cacheSet, cacheRemove, cacheRemovePrefix, cachedFetch, cacheUpsertInList,
+  cacheGet, cacheSet, cacheRemove, cacheRemovePrefix, cachedFetch, softFetch, networkInvalidate, cacheUpsertInList,
   toPlain, revive
 };

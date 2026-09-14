@@ -12,7 +12,7 @@ import {
   updateProfile, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, onSnapshot,
   ref, uploadBytes, getDownloadURL
 } from './firebase.js';
-import { cacheGet, cacheSet, cachedFetch, softFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, cacheRemove, toPlain } from './localCache.js';
+import { cacheGet, cacheSet, cachedFetch, softFetch, cacheUserKey, cacheNotifsKey, cacheChatsKey, cacheNewsKey, cacheRemovePrefix, cacheRemove, networkInvalidate, toPlain } from './localCache.js';
 
 // ===== 20 فلتر / قسم للأصول =====
 const PROJECT_CATEGORIES = [
@@ -586,6 +586,122 @@ function getDriveDownloadUrl(link) {
 window.getDriveDownloadUrl = getDriveDownloadUrl;
 window.getDriveFileId = getDriveFileId;
 
+
+// ===== علامة الموقع + نافذة تحميل المحرك (settings/engine — شبكة أصل) =====
+async function fetchEngineSettings() {
+  try {
+    const { data } = await softFetch('settings:engine', async () => {
+      const snap = await getDoc(doc(db, 'settings', 'engine'));
+      return snap.exists() ? snap.data() : {};
+    }, { sessionFlag: 'soft:settings:engine', maxAgeMs: 5 * 60 * 1000 });
+    return data || {};
+  } catch {
+    return cacheGet('settings:engine') || {};
+  }
+}
+
+function applySiteBranding(data) {
+  const siteName = (data && (data.siteName || data.engineName || data.name)) || 'محرك مصران';
+  const logoUrl = data && data.logoUrl;
+  document.querySelectorAll('.navbar-brand, .js-site-brand').forEach(el => {
+    if (logoUrl) {
+      el.innerHTML = `<img src="${logoUrl}" alt="" class="site-logo-img" style="height:32px;width:auto;margin-left:0.4rem;border-radius:6px;vertical-align:middle;">${siteName}`;
+    } else {
+      el.innerHTML = `<i class="fas fa-ankh me-2"></i>${siteName}`;
+    }
+  });
+  document.querySelectorAll('.js-site-name').forEach(el => { el.textContent = siteName; });
+  try {
+    document.title = document.title.replace(/متجر مصران|محرك مصران/g, siteName);
+  } catch (_) {}
+}
+
+function ensureEngineDownloadModal() {
+  if (document.getElementById('engineDownloadModal')) return;
+  document.body.insertAdjacentHTML('beforeend', `
+    <div class="modal fade" id="engineDownloadModal" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-download me-2"></i>تحميل المحرك</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body" id="engineDownloadBody">
+            <div class="text-center text-muted py-4">جاري التحميل...</div>
+          </div>
+        </div>
+      </div>
+    </div>`);
+}
+
+async function openEngineDownloadModal() {
+  ensureEngineDownloadModal();
+  const body = document.getElementById('engineDownloadBody');
+  body.innerHTML = '<div class="text-center text-muted py-4">جاري التحميل...</div>';
+  new bootstrap.Modal(document.getElementById('engineDownloadModal')).show();
+  const data = await fetchEngineSettings();
+  const name = data.engineName || data.name || 'محرك مصران';
+  const ver = data.version || '—';
+  const desc = data.description || 'لا يوجد وصف بعد.';
+  const imgs = data.images || [];
+  let dl = data.downloadUrl || '';
+  if (dl && typeof getDriveDownloadUrl === 'function') dl = getDriveDownloadUrl(dl);
+  else if (data.fileId) dl = `https://drive.google.com/uc?export=download&id=${data.fileId}`;
+
+  const imgsHtml = imgs.length
+    ? `<div class="d-flex flex-wrap gap-2 mb-3">${imgs.map(im => {
+        const u = typeof im === 'string' ? im : (im.url || '');
+        return u ? `<img src="${u}" alt="" style="max-width:160px;max-height:110px;object-fit:cover;border-radius:10px;border:1px solid rgba(201,162,39,0.3);">` : '';
+      }).join('')}</div>`
+    : '';
+
+  body.innerHTML = `
+    ${imgsHtml}
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+      <div>
+        <h4 class="mb-1 fw-bold">${name}</h4>
+        <span class="badge bg-warning text-dark">أحدث إصدار: ${ver}</span>
+      </div>
+      ${dl
+        ? `<a class="btn btn-primary-custom text-dark fw-bold" href="${dl}" download target="_blank" rel="noopener">
+             <i class="fas fa-download me-1"></i>تحميل <span class="small">(أحدث إصدار)</span>
+           </a>`
+        : `<button type="button" class="btn btn-secondary" disabled>التحميل غير متاح بعد</button>`}
+    </div>
+    <p class="mb-3" style="white-space:pre-wrap;">${desc}</p>
+    <div class="alert alert-info mb-0 small">
+      <i class="fas fa-shield-alt me-1"></i>
+      متخافش: لما تحمّل المحرك وتفتح نافذة المشاريع هتلاقي مشاريعك زي ما هي موجودة.
+    </div>`;
+}
+
+async function initEngineUi() {
+  try {
+    const data = await fetchEngineSettings();
+    applySiteBranding(data);
+  } catch (_) {
+    applySiteBranding({ siteName: 'محرك مصران' });
+  }
+  // زر الشريط
+  document.querySelectorAll('.nav-engine-download').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openEngineDownloadModal();
+    });
+  });
+}
+
+// استدعِ بعد تحميل الصفحة
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { try { initEngineUi(); } catch(_){} });
+  } else {
+    try { initEngineUi(); } catch(_){}
+  }
+}
+
+
+
 function getDriveImageUrl(link) {
   if (!link) return '';
   let id = '';
@@ -769,8 +885,8 @@ async function saveProjectWithStatus(status, successMsg) {
       updatedAt: serverTimestamp()
     });
     // أبطل كاش قائمة المشاريع عشان الزيارة الجاية تجيب الجديد (قراءة واحدة)
-    try { cacheRemovePrefix && cacheRemovePrefix('projects:'); } catch(_){}
-    try { window.localCache?.removePrefix('projects:'); } catch(_){}
+    try { networkInvalidate('projects:', 'product:'); } catch(_){}
+    try { window.localCache?.invalidate?.('projects:', 'product:'); } catch(_){}
     showToast(successMsg);
     bootstrap.Modal.getInstance(document.getElementById('uploadModal'))?.hide();
     document.getElementById('uploadForm')?.reset();
@@ -947,7 +1063,15 @@ function initSupportWidget(user) {
   // إزالة أي واجهة دعم قديمة كبيرة
   document.querySelectorAll('.support-toggle-btn:not(.support-fab-circle)').forEach(() => {});
 
+  // دائماً: زر دائري فقط + لوحة شات (مش نافذة عريضة قديمة)
   let fab = document.getElementById('supportFab');
+  if (fab) {
+    const btn = document.getElementById('supportToggleBtn');
+    if (!btn || !btn.classList.contains('support-fab-circle') || fab.querySelector('.support-toggle-btn:not(.support-fab-circle)')) {
+      fab.remove();
+      fab = null;
+    }
+  }
   if (!fab) {
     document.body.insertAdjacentHTML('beforeend', `
       <div id="supportFab" class="support-fab">
@@ -971,14 +1095,6 @@ function initSupportWidget(user) {
       </div>
     `);
     fab = document.getElementById('supportFab');
-  } else {
-    // ترقية الزر لو قديم
-    const btn = document.getElementById('supportToggleBtn');
-    if (btn && !btn.classList.contains('support-fab-circle')) {
-      btn.className = 'support-fab-circle';
-      btn.innerHTML = '<i class="fas fa-headset"></i><span id="supportBadge" class="support-badge-dot d-none"></span>';
-      btn.title = 'الدعم';
-    }
   }
 
   // شارة الدعم في الشريط العلوي

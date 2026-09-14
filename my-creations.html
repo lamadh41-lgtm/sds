@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>إبداعاتي | متجر مصران</title>
+  <title>إبداعاتي | محرك مصران</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,13 +14,15 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-custom sticky-top">
     <div class="container">
-      <a class="navbar-brand" href="index.html"><i class="fas fa-ankh me-2"></i>متجر مصران</a>
+      <a class="navbar-brand js-site-brand" href="index.html"><i class="fas fa-ankh me-2"></i>محرك مصران</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
         <span class="navbar-toggler-icon"></span>
       </button>
       <div class="collapse navbar-collapse" id="navMenu">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <li class="nav-item"><a class="nav-link" href="projects.html">المشاريع</a></li>
+          <li class="nav-item"><a class="nav-link nav-engine-download" href="#"><i class="fas fa-download me-1"></i>تحميل المحرك</a></li>
+          <li class="nav-item"><a class="nav-link" href="content.html"><i class="fas fa-play-circle me-1"></i>المحتوى</a></li>
           <li class="nav-item"><a class="nav-link" href="index.html#about">عن المتجر</a></li>
           <li class="nav-item"><a class="nav-link" href="support.html"><i class="fas fa-headset me-1"></i>الدعم <span class="nav-support-badge support-badge-dot d-none"></span></a></li>
         </ul>
@@ -444,17 +446,21 @@
       if (!cats.length) { showToast('اختر فلترًا واحدًا على الأقل', 'error'); return; }
       const payload = { title, description, categories: cats, updatedAt: serverTimestamp() };
 
-      // السعر العادي: متاح دائماً
+      // اقرأ سعر العرض أولاً إن كان مفعّلاً، وإلا السعر العادي
       let price = parseFloat(document.getElementById('editPriceValue')?.value) || 0;
+      const saleOn = !!document.getElementById('editSaleEnabled')?.checked;
+      const offerInpEarly = document.getElementById('editSaleOfferPrice');
+      if (saleOn && offerInpEarly && offerInpEarly.value !== '') {
+        price = parseFloat(offerInpEarly.value) || 0;
+      }
       if (price < 0) { showToast('سعر غير صالح', 'error'); return; }
       payload.price = price;
       payload.isFree = price === 0;
 
-      // العرض: مسموح حتى أثناء السريان، لكن بعد أي تعديل عرض → انتظار 24 ساعة على نفس المنتج
       const lastOfferEdit = p.lastOfferEditAt?.toMillis?.() || p.lastOfferEditAt?.__ts || (p.lastOfferEditAt ? new Date(p.lastOfferEditAt).getTime() : 0);
       const cooldownMs = 24 * 3600000;
       const offerCooldownLeft = lastOfferEdit ? (lastOfferEdit + cooldownMs - Date.now()) : 0;
-      const wantSale = document.getElementById('editSaleEnabled')?.checked && price > 0;
+      const wantSale = saleOn && price > 0;
       const currentlyOnSale = window.isProductOnSale && window.isProductOnSale(p);
 
       if (wantSale) {
@@ -462,12 +468,6 @@
           const h = Math.ceil(offerCooldownLeft / 3600000);
           showToast('لا يمكن تعديل العرض الآن. متبقي حوالي ' + h + ' ساعة', 'error');
           return;
-        }
-        const offerInp = document.getElementById('editSaleOfferPrice');
-        if (offerInp && offerInp.value !== '') {
-          price = parseFloat(offerInp.value) || 0;
-          payload.price = price;
-          payload.isFree = price === 0;
         }
         const orig = parseFloat(document.getElementById('editOriginalPrice')?.value) || 0;
         const durVal = parseFloat(document.getElementById('editSaleDuration')?.value) || 0;
@@ -484,7 +484,9 @@
         payload.salePending = false;
         payload.saleDurationValue = durVal;
         payload.saleDurationUnit = unit;
-        payload.lastOfferEditAt = new Date();
+        payload.lastOfferEditAt = new Date(Date.now());
+        // تأكيد ظهور العرض فوراً
+        if (payload.saleEndsAt.getTime() <= Date.now()) payload.saleEndsAt = new Date(Date.now() + mult);
       } else if (currentlyOnSale || p.originalPrice) {
         // إلغاء العرض (مسموح أيضاً ويحسب كتعديل عرض)
         if (offerCooldownLeft > 0) {
@@ -521,10 +523,16 @@
         }
         await updateDoc(doc(db, 'projects', id), payload);
         try {
-          window.localCache?.remove('product:' + id);
-          window.localCache?.removePrefix('projects:');
+          // امسح التابع ثم املأ من نتيجة الشبكة (الحقيقة)
+          window.localCache?.invalidate?.('product:' + id, 'projects:', 'myProjects:', 'sellerProds:');
+          window.localCache?.remove?.('product:' + id);
+          window.localCache?.removePrefix?.('projects:');
+          // نسخة مؤقتة للعرض الفوري — ستُستبدل عند أول قراءة شبكة
+          const fresh = { id, ...p, ...payload };
+          delete fresh.updatedAt;
+          window.localCache?.set('product:' + id, fresh);
         } catch(_){}
-        showToast('تم الحفظ');
+        showToast('تم الحفظ — سيظهر التحديث في المتجر فوراً');
         bootstrap.Modal.getInstance(document.getElementById('editPriceModal'))?.hide();
         await loadMine();
       } catch (e) { showToast(e.message || String(e), 'error'); }
