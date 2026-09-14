@@ -233,38 +233,17 @@
   <script type="module">
     import { auth, db, storage, onAuthStateChanged, collection, query, where, orderBy, getDocs, limit, startAfter, addDoc, serverTimestamp, ref, uploadBytes, getDownloadURL, doc, getDoc } from './firebase.js';
     import { showToast, showLoading, getInitials } from './app.js';
+    import './localCache.js';
 
     const PAGE_SIZE = 10;
-    let lastDoc = null;
-    let currentPage = 1;
-    let allDocs = [];
     let myOwnedIds = new Set();
     let myPurchasedIds = new Set();
     let currentUser = null;
+    let projectsCursor = null;
+    let projectsPageStack = [null];
+    let projectsPageIndex = 0;
 
-    onAuthStateChanged(auth, async (user) => {
-      currentUser = user;
-      myOwnedIds = new Set();
-      myPurchasedIds = new Set();
-      if (user) {
-        const uploadBtn = document.getElementById('uploadFromProjects');
-        if (uploadBtn) {
-          uploadBtn.style.display = 'inline-block';
-          uploadBtn.onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
-        }
-        try {
-          // مشتريات المستخدم فقط — الإبداعات من sellerId داخل loadProjects
-          const purchSnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
-          purchSnap.docs.forEach(d => {
-            const x = d.data();
-            if (x.status === 'approved' || x.status === 'owned_free') {
-              myPurchasedIds.add(x.projectId);
-            }
-          });
-        } catch (e) { console.error(e); }
-      }
-      
-    // ===== فلاتر وبحث + أقسام الرفع =====
+    // ===== فلاتر وبحث =====
     function fillCategoriesBox() {
       const box = document.getElementById('projCategoriesBox');
       if (!box || box.dataset.ready) return;
@@ -289,28 +268,7 @@
       });
       sel.dataset.ready = '1';
     }
-    document.getElementById('projSaleEnabled')?.addEventListener('change', (e) => {
-      document.getElementById('projSaleFields')?.classList.toggle('d-none', !e.target.checked);
-    });
-    // إظهار خيارات العرض مع السعر المدفوع
-    document.querySelectorAll('input[name="projPricing"]').forEach(r => {
-      r.addEventListener('change', () => {
-        const paid = document.querySelector('input[name="projPricing"]:checked')?.value === 'paid';
-        const sw = document.getElementById('projSaleWrap');
-        if (sw) sw.style.display = paid ? '' : 'none';
-        if (!paid) {
-          const en = document.getElementById('projSaleEnabled');
-          if (en) en.checked = false;
-          document.getElementById('projSaleFields')?.classList.add('d-none');
-        }
-      });
-    });
-    document.getElementById('filterPriceMode')?.addEventListener('change', () => {
-      const v = document.getElementById('filterPriceMode').value;
-      const show = v === 'range';
-      document.getElementById('filterPriceMinWrap')?.classList.toggle('d-none', !show);
-      document.getElementById('filterPriceMaxWrap')?.classList.toggle('d-none', !show);
-    });
+
     function applyClientFilters(docs) {
       const q = (document.getElementById('filterSearch')?.value || '').trim().toLowerCase();
       const cat = document.getElementById('filterCategory')?.value || '';
@@ -340,29 +298,9 @@
         return true;
       });
     }
-    ['filterSearch','filterCategory','filterPriceMode','filterPriceMin','filterPriceMax','filterOnSale'].forEach(id => {
-      document.getElementById(id)?.addEventListener(id === 'filterSearch' ? 'input' : 'change', () => {
-        if (typeof window._lastProjectsPageDocs !== 'undefined') {
-          // re-render from last page
-          try { window._rerenderProjectsFiltered && window._rerenderProjectsFiltered(); } catch(_){}
-        }
-      });
-    });
-    window._rerenderProjectsFiltered = function() {
-      const grid = document.getElementById('projectsGrid');
-      if (!grid || !window._lastProjectsPageDocs) return;
-      let pageDocs = applyClientFilters(window._lastProjectsPageDocs);
-      if (currentUser) {
-        pageDocs.forEach(d => {
-          if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
-        });
-      }
-      if (pageDocs.length === 0) {
-        grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد نتائج مطابقة للبحث أو الفلاتر.</p></div>';
-        document.getElementById('pagination').innerHTML = '';
-        return;
-      }
-      grid.innerHTML = pageDocs.map(d => {
+
+    function renderProjectCards(pageDocs) {
+      return pageDocs.map(d => {
         const p = d.data();
         const priceHtml = window.priceHtmlForProduct
           ? window.priceHtmlForProduct(p)
@@ -375,16 +313,21 @@
         let ownerBadge = '';
         if (myOwnedIds.has(d.id)) ownerBadge = '<span class="thumb-badge thumb-badge-mine">إبداعاتي</span>';
         else if (myPurchasedIds.has(d.id)) ownerBadge = '<span class="thumb-badge thumb-badge-bought">مشترياتي</span>';
+        const thumb = p.thumbnailDirect
+          || (p.thumbnail && (String(p.thumbnail).includes('drive.google.com')
+            ? 'https://drive.google.com/thumbnail?id=' + ((String(p.thumbnail).match(/\/d\/([a-zA-Z0-9_-]+)/)||[])[1] || (String(p.thumbnail).match(/id=([a-zA-Z0-9_-]+)/)||[])[1] || '') + '&sz=w500'
+            : p.thumbnail))
+          || 'https://via.placeholder.com/400x180?text=Project';
         return `
           <div class="col-md-4 col-sm-6">
             <div class="project-card h-100">
               <a href="product.html?id=${d.id}" class="text-decoration-none position-relative d-block">
-                <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
+                <img src="${thumb}" class="project-thumb" alt="${(p.title||'').replace(/"/g,'&quot;')}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
                 ${ownerBadge}
               </a>
               <div class="project-body">
                 <a href="product.html?id=${d.id}" class="text-decoration-none text-dark">
-                  <div class="project-title">${p.title} ${verified}</div>
+                  <div class="project-title">${p.title || ''} ${verified}</div>
                   <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
                 </a>
                 <div class="d-flex justify-content-between align-items-center mt-2">
@@ -401,35 +344,47 @@
             </div>
           </div>`;
       }).join('');
+    }
+
+    window._rerenderProjectsFiltered = function() {
+      const grid = document.getElementById('projectsGrid');
+      if (!grid || !window._lastProjectsPageDocs) return;
+      let pageDocs = applyClientFilters(window._lastProjectsPageDocs);
+      if (currentUser) {
+        pageDocs.forEach(d => {
+          if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
+        });
+      }
+      if (pageDocs.length === 0) {
+        grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد نتائج مطابقة للبحث أو الفلاتر.</p></div>';
+        const pag = document.getElementById('pagination');
+        if (pag) pag.innerHTML = '';
+        return;
+      }
+      grid.innerHTML = renderProjectCards(pageDocs);
     };
 
-    fillCategoriesBox();
-    fillFilterCategorySelect();
-    document.getElementById('uploadModal')?.addEventListener('show.bs.modal', fillCategoriesBox);
-
-      loadProjects('first');
+    ['filterSearch','filterCategory','filterPriceMode','filterPriceMin','filterPriceMax','filterOnSale'].forEach(id => {
+      document.getElementById(id)?.addEventListener(id === 'filterSearch' ? 'input' : 'change', () => {
+        try { window._rerenderProjectsFiltered && window._rerenderProjectsFiltered(); } catch(_){}
+      });
     });
 
-    let projectsCursor = null;
-    let projectsPageStack = [null]; // for prev pages
-    let projectsPageIndex = 0;
-
     async function loadProjects(direction = 'first') {
-      currentPage = direction;
       const grid = document.getElementById('projectsGrid');
+      if (!grid) return;
       grid.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
       try {
-        // كاش الصفحة الأولى محلياً — صفر قراءات عند الرجوع
         let pageDocs = null;
-        const useCacheFirst = (direction === 'first' || direction === 'prev' && projectsPageIndex <= 1);
+
+        // كاش الصفحة الأولى محلياً
         if (direction === 'first') {
           const cachedPage = window.localCache?.get('projects:page:0');
           if (Array.isArray(cachedPage) && cachedPage.length) {
-            // استبعد المحذوف/غير النشط من الكاش (لو اتسجل حذف بعد التخزين)
             const activeOnly = cachedPage.filter(x => {
-              const st = x.data?.status || x.data?.()?.status;
-              return !st || st === 'active';
+              const st = (typeof x.data === 'function' ? x.data()?.status : x.data?.status) || 'active';
+              return st === 'active';
             });
             if (activeOnly.length) {
               pageDocs = activeOnly.map(x => ({
@@ -443,7 +398,6 @@
         }
 
         if (!pageDocs) {
-          // قراءة من الشبكة ثم حفظ محلي
           let qBase;
           try {
             if (direction === 'next' && projectsCursor) {
@@ -467,32 +421,33 @@
           try {
             snap = await getDocs(qBase);
           } catch (idxErr) {
+            console.warn('Index fallback:', idxErr.message);
             snap = await getDocs(query(collection(db, 'projects'), where('status', '==', 'active'), limit(PAGE_SIZE)));
           }
 
-          pageDocs = snap.docs.filter(d => d.data().status === 'active');
-          // احفظ الصفحة الأولى محلياً (قبل فلتر الواجهة)
+          pageDocs = snap.docs.filter(d => (d.data().status || 'active') === 'active');
+
           if (projectsPageIndex === 0 || direction === 'first') {
             try {
-              const activeDocs = pageDocs.filter(d => (d.data().status || 'active') === 'active');
-              window.localCache?.set('projects:page:0', activeDocs.map(d => ({ id: d.id, data: d.data() })));
-              activeDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
+              window.localCache?.set('projects:page:0', pageDocs.map(d => ({ id: d.id, data: d.data() })));
+              pageDocs.forEach(d => window.localCache?.set('product:' + d.id, { id: d.id, ...d.data() }));
             } catch(_){}
           }
         }
 
-        // دائماً: فلترة + عرض (سواء من كاش أو شبكة)
+        // فلترة + عرض دائماً
         window._lastProjectsPageDocs = pageDocs;
-        pageDocs = applyClientFilters(pageDocs);
+        const filtered = applyClientFilters(pageDocs);
         if (currentUser) {
-          pageDocs.forEach(d => {
+          filtered.forEach(d => {
             if (d.data().sellerId === currentUser.uid) myOwnedIds.add(d.id);
           });
         }
 
-        if (pageDocs.length === 0) {
+        if (filtered.length === 0) {
           grid.innerHTML = '<div class="col-12 text-center py-5 text-muted"><i class="fas fa-box-open fa-3x mb-3"></i><p>لا توجد نتائج مطابقة للبحث أو الفلاتر.</p></div>';
-          document.getElementById('pagination').innerHTML = '';
+          const pag0 = document.getElementById('pagination');
+          if (pag0) pag0.innerHTML = '';
           return;
         }
 
@@ -501,68 +456,29 @@
             projectsPageStack.push(projectsCursor);
             projectsPageIndex = projectsPageStack.length - 1;
           }
-          projectsCursor = pageDocs[pageDocs.length - 1];
+          // cursor من docs الشبكة الأصلية (قبل الفلتر) إن أمكن
+          projectsCursor = pageDocs[pageDocs.length - 1] || filtered[filtered.length - 1];
         }
 
-        grid.innerHTML = pageDocs.map(d => {
-          const p = d.data();
-          const priceHtml = window.priceHtmlForProduct
-            ? window.priceHtmlForProduct(p)
-            : (p.isFree || (window.getEffectivePrice ? window.getEffectivePrice(p) : p.price) === 0
-              ? '<span class="project-price free">مجاني</span>'
-              : `<span class="project-price">${window.getEffectivePrice ? window.getEffectivePrice(p) : p.price} ج.م</span>`);
-          const verified = p.isOfficial 
-            ? '<span class="badge-verified ms-1"><i class="fas fa-check-circle"></i> المحرك</span>' 
-            : '';
-          let ownerBadge = '';
-          if (myOwnedIds.has(d.id)) {
-            ownerBadge = '<span class="thumb-badge thumb-badge-mine">إبداعاتي</span>';
-          } else if (myPurchasedIds.has(d.id)) {
-            ownerBadge = '<span class="thumb-badge thumb-badge-bought">مشترياتي</span>';
-          }
-          return `
-            <div class="col-md-4 col-sm-6">
-              <div class="project-card h-100">
-                <a href="product.html?id=${d.id}" class="text-decoration-none position-relative d-block">
-                  <img src="${p.thumbnailDirect || (p.thumbnail && (p.thumbnail.includes('drive.google.com') ? 'https://drive.google.com/thumbnail?id=' + (p.thumbnail.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || p.thumbnail.match(/id=([a-zA-Z0-9_-]+)/)?.[1] || '') + '&sz=w500' : p.thumbnail)) || 'https://via.placeholder.com/400x180?text=Project'}" class="project-thumb" alt="${p.title}" onerror="this.src='https://via.placeholder.com/400x180?text=Project'">
-                  ${ownerBadge}
-                </a>
-                <div class="project-body">
-                  <a href="product.html?id=${d.id}" class="text-decoration-none text-dark">
-                    <div class="project-title">${p.title} ${verified}</div>
-                    <div class="text-muted small mb-2 text-truncate">${p.description || ''}</div>
-                  </a>
-                  <div class="d-flex justify-content-between align-items-center gap-1 flex-wrap">
-                    ${priceHtml}
-                    <div class="d-flex align-items-center gap-2">
-                      <a href="seller.html?id=${p.sellerId || ''}" class="small text-primary text-decoration-none fw-semibold d-inline-flex align-items-center gap-1" onclick="event.stopPropagation();">
-                        ${p.sellerPhoto ? `<img src="${p.sellerPhoto}" alt="" class="rounded-circle" style="width:22px;height:22px;object-fit:cover;">` : `<i class="fas fa-store"></i>`}
-                        ${p.sellerName || 'بائع'}
-                      </a>
-                      <a href="product.html?id=${d.id}" class="btn btn-sm btn-outline-secondary py-0 px-2" title="مشاركة" onclick="event.stopPropagation();"><i class="fas fa-share-alt"></i></a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join('');
+        grid.innerHTML = renderProjectCards(filtered);
 
         const pag = document.getElementById('pagination');
-        const hasNext = pageDocs.length >= PAGE_SIZE;
-        const hasPrev = projectsPageIndex > 0;
-        pag.innerHTML = `
-          <li class="page-item ${hasPrev ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="prev">السابق</a></li>
-          <li class="page-item disabled"><span class="page-link">صفحة ${projectsPageIndex + 1}</span></li>
-          <li class="page-item ${hasNext ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="next">التالي</a></li>
-        `;
-        pag.querySelectorAll('.page-link[data-dir]').forEach(el => {
-          el.addEventListener('click', (e) => {
-            e.preventDefault();
-            if (el.parentElement.classList.contains('disabled')) return;
-            loadProjects(el.dataset.dir);
+        if (pag) {
+          const hasNext = pageDocs.length >= PAGE_SIZE;
+          const hasPrev = projectsPageIndex > 0;
+          pag.innerHTML = `
+            <li class="page-item ${hasPrev ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="prev">السابق</a></li>
+            <li class="page-item disabled"><span class="page-link">صفحة ${projectsPageIndex + 1}</span></li>
+            <li class="page-item ${hasNext ? '' : 'disabled'}"><a class="page-link" href="#" data-dir="next">التالي</a></li>
+          `;
+          pag.querySelectorAll('.page-link[data-dir]').forEach(el => {
+            el.addEventListener('click', (e) => {
+              e.preventDefault();
+              if (el.parentElement.classList.contains('disabled')) return;
+              loadProjects(el.dataset.dir);
+            });
           });
-        });
+        }
       } catch (err) {
         console.error(err);
         grid.innerHTML = `<div class="col-12 text-center text-danger">
@@ -573,64 +489,52 @@
       }
     }
 
-    // منع التكرار: منطق الرفع موجود في app.js فقط
-    document.getElementById('commissionTermsLink')?.addEventListener('click', e => {
-      e.preventDefault();
-      document.getElementById('commissionTermsText').classList.toggle('d-none');
+    // إعدادات العرض/الرفع
+    document.getElementById('projSaleEnabled')?.addEventListener('change', (e) => {
+      document.getElementById('projSaleFields')?.classList.toggle('d-none', !e.target.checked);
+    });
+    document.querySelectorAll('input[name="projPricing"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const paid = document.querySelector('input[name="projPricing"]:checked')?.value === 'paid';
+        const sw = document.getElementById('projSaleWrap');
+        if (sw) sw.style.display = paid ? '' : 'none';
+        if (!paid) {
+          const se = document.getElementById('projSaleEnabled');
+          if (se) se.checked = false;
+          document.getElementById('projSaleFields')?.classList.add('d-none');
+        }
+      });
     });
 
-    // بعد النشر الناجح من app.js نعيد تحميل القائمة
+    document.getElementById('commissionTermsLink')?.addEventListener('click', e => {
+      e.preventDefault();
+      document.getElementById('commissionTermsText')?.classList.toggle('d-none');
+    });
+
     document.getElementById('uploadForm')?.addEventListener('submit', () => {
       setTimeout(() => loadProjects('first'), 1500);
     });
-  
-    document.getElementById('projFilesFile')?.addEventListener('change', (e) => {
-      const f = e.target.files?.[0];
-      const clearBtn = document.getElementById('clearFilesBtn');
-      const prev = document.getElementById('filesPreview');
-      if (!f) {
-        if (clearBtn) clearBtn.classList.add('d-none');
-        if (prev) prev.textContent = '';
-        return;
-      }
-      if (f.name === '.' || (f.size === 0 && f.type === '')) {
-        showToast?.('غير مسموح برفع مجلد — ارفع ملف واحد', 'error');
-        e.target.value = '';
-        return;
-      }
-      if (clearBtn) clearBtn.classList.remove('d-none');
-      if (prev) prev.textContent = '✓ ' + f.name + ' (' + Math.round(f.size/1024) + ' ك.ب)';
-    });
-    document.getElementById('clearFilesBtn')?.addEventListener('click', () => {
-      const inp = document.getElementById('projFilesFile');
-      if (inp) inp.value = '';
-      document.getElementById('clearFilesBtn')?.classList.add('d-none');
-      const prev = document.getElementById('filesPreview');
-      if (prev) prev.textContent = '';
-    });
 
+    // صورة مصغرة
     document.getElementById('projThumbFile')?.addEventListener('change', async (e) => {
       const f = e.target.files?.[0];
-      const box = document.getElementById('thumbPreview');
-      const clearBtn = document.getElementById('clearThumbBtn');
-      if (!box) return;
-      if (!f) {
-        box.innerHTML = '';
-        window._croppedThumbFile = null;
-        clearBtn?.classList.add('d-none');
-        return;
-      }
+      if (!f) return;
       try {
-        const cropped = await (window.openImageCropper || openImageCropper)(f, { aspect: 16/9, outSize: 800, title: 'قص الصورة المصغرة' });
-        window._croppedThumbFile = cropped;
-        box.innerHTML = `<img src="${URL.createObjectURL(cropped)}" style="height:80px;width:120px;object-fit:cover;border-radius:8px;border:2px solid #d4af37;">`;
-        clearBtn?.classList.remove('d-none');
+        if (typeof window.openImageCropper === 'function') {
+          const cropped = await window.openImageCropper(f, { aspect: 16/9, outSize: 800, title: 'قص الصورة المصغرة' });
+          window._croppedThumbFile = cropped;
+          const box = document.getElementById('thumbPreview');
+          if (box) box.innerHTML = `<img src="${URL.createObjectURL(cropped)}" style="max-height:120px;border-radius:8px;">`;
+          document.getElementById('clearThumbBtn')?.classList.remove('d-none');
+        } else {
+          window._croppedThumbFile = f;
+          const box = document.getElementById('thumbPreview');
+          if (box) box.innerHTML = `<img src="${URL.createObjectURL(f)}" style="max-height:120px;border-radius:8px;">`;
+          document.getElementById('clearThumbBtn')?.classList.remove('d-none');
+        }
       } catch (err) {
-        if (err.message !== 'cancelled') showToast?.(err.message || 'فشل القص', 'error');
+        if (err && err.message !== 'cancelled') console.error(err);
         e.target.value = '';
-        window._croppedThumbFile = null;
-        box.innerHTML = '';
-        clearBtn?.classList.add('d-none');
       }
     });
     document.getElementById('clearThumbBtn')?.addEventListener('click', () => {
@@ -642,7 +546,7 @@
       document.getElementById('clearThumbBtn')?.classList.add('d-none');
     });
 
-    // الصور الإضافية: كل اختيار يُضاف للقائمة (لا يستبدل)
+    // صور إضافية
     window._extraImageFiles = window._extraImageFiles || [];
     document.getElementById('projExtraImages')?.addEventListener('change', (e) => {
       const incoming = Array.from(e.target.files || []);
@@ -651,19 +555,50 @@
       const room = Math.max(0, 12 - cur.length);
       const add = incoming.slice(0, room);
       window._extraImageFiles = cur.concat(add);
-      if (typeof renderExtraPreview === 'function') renderExtraPreview();
-      else {
-        const box = document.getElementById('extraPreview');
-        if (box) box.innerHTML = window._extraImageFiles.map((f,i)=>`
-          <div class="position-relative d-inline-block me-1 mb-1">
-            <img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">
-            <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 p-0" data-i="${i}"
-              style="width:20px;height:20px;font-size:11px;border-radius:50%;" onclick="window._extraImageFiles.splice(${i},1);this.parentElement.remove();">×</button>
-          </div>`).join('');
-      }
-      e.target.value = ''; // يسمح باختيار نفس الملف لاحقاً والإضافة مجدداً
+      const box = document.getElementById('extraPreview');
+      if (box) box.innerHTML = window._extraImageFiles.map((f,i)=>`
+        <div class="position-relative d-inline-block me-1 mb-1">
+          <img src="${URL.createObjectURL(f)}" style="height:56px;width:72px;object-fit:cover;border-radius:6px;">
+          <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 p-0" data-i="${i}"
+            style="width:20px;height:20px;font-size:11px;border-radius:50%;" onclick="window._extraImageFiles.splice(${i},1);this.parentElement.remove();">×</button>
+        </div>`).join('');
+      e.target.value = '';
       if (incoming.length > room) showToast?.('تم الوصول للحد الأقصى 12 صورة', 'error');
     });
-  </script>
+
+    document.getElementById('projFilesFile')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      const label = document.getElementById('projFilesLabel');
+      if (label) label.textContent = f ? f.name : '';
+    });
+
+    fillCategoriesBox();
+    fillFilterCategorySelect();
+    document.getElementById('uploadModal')?.addEventListener('show.bs.modal', fillCategoriesBox);
+
+    // Auth + تحميل المشاريع
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user;
+      myOwnedIds = new Set();
+      myPurchasedIds = new Set();
+      if (user) {
+        const uploadBtn = document.getElementById('uploadFromProjects');
+        if (uploadBtn) {
+          uploadBtn.style.display = 'inline-block';
+          uploadBtn.onclick = () => new bootstrap.Modal(document.getElementById('uploadModal')).show();
+        }
+        try {
+          const purchSnap = await getDocs(query(collection(db, 'purchases'), where('buyerId', '==', user.uid), limit(80)));
+          purchSnap.docs.forEach(d => {
+            const x = d.data();
+            if (x.status === 'approved' || x.status === 'owned_free') {
+              myPurchasedIds.add(x.projectId);
+            }
+          });
+        } catch (e) { console.error(e); }
+      }
+      loadProjects('first');
+    });
+</script>
 </body>
 </html>
